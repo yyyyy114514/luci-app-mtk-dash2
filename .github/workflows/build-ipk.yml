@@ -46,7 +46,7 @@ jobs:
         run: |
           set -eu
           mkdir -p openwrt
-          curl --fail --location --retry 3 --output sdk.tar.zst \\
+          curl --fail --location --retry 3 --output sdk.tar.zst \
             "$MIRROR_BASE/releases/$SDK_VERSION/targets/$SDK_TARGET/$SDK_FILE"
           tar --zstd -xf sdk.tar.zst -C openwrt --strip-components=1
           rm -f sdk.tar.zst
