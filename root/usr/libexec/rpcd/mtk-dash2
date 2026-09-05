@@ -1,0 +1,1096 @@
+#!/usr/bin/env lua
+local json = require "luci.jsonc"
+local fs = require "nixio.fs"
+
+local function get_plugin_version()
+	local f = io.open("/usr/share/luci-app-mtk-dash2/VERSION", "r")
+	local v = f and f:read("*l") or nil
+	if f then f:close() end
+	return v and v:gsub("%s+$", "") or "0.2.0"
+end
+local PLUGIN_VERSION = get_plugin_version()
+local STAMP_FILE = "/usr/share/luci-app-mtk-dash2/VERSION"
+local REDACTED = "__mtk_redacted__"
+local ARCHIVE_DIR = "/tmp/mtk-dash2/archives"
+local MAP_DIR = "/etc/map"
+
+local SENSITIVE_WORDS = {
+	"key", "psk", "pass", "secret", "password", "sae", "wep", "pin",
+	"preSharedKey", "pre_shared_key", "wpapsk", "wpa_key", "repeater",
+	"k1", "k2", "pmk", "dpp", "bootstrap", "authpass", "cred",
+}
+
+local function is_sensitive(key)
+	local k = tostring(key or ""):lower()
+	for _, w in ipairs(SENSITIVE_WORDS) do
+		if k:find(w, 1, true) then return true end
+	end
+	return false
+end
+
+local function clean_text(s)
+	if type(s) ~= "string" then return "" end
+	s = s:gsub("\0", " ")
+	s = s:gsub("[\1-\8\11\12\14-\31\127]", " ")
+	local t, i, n = {}, 1, #s
+	while i <= n do
+		local b = s:byte(i)
+		if b < 128 then
+			t[#t + 1] = string.char(b)
+			i = i + 1
+		elseif b >= 192 and b <= 244 then
+			local nb = 1
+			if b >= 240 then nb = 3
+			elseif b >= 224 then nb = 2
+			end
+			if i + nb <= n then
+				local okc = true
+				for j = i + 1, i + nb do
+					local c = s:byte(j)
+					if not (c >= 128 and c <= 191) then okc = false break end
+				end
+				if okc then
+					t[#t + 1] = s:sub(i, i + nb)
+					i = i + nb + 1
+				else
+					i = i + 1
+				end
+			else
+				i = i + 1
+			end
+		else
+			i = i + 1
+		end
+	end
+	s = table.concat(t)
+	if #s > 20000 then s = s:sub(1, 20000) end
+	return s
+end
+
+local function redact_line(line)
+	line = line:gsub("(option%s+([%w_]+)%s*['\"])([^'\"]*)(['\"])", function(pre, k, v, post)
+		if is_sensitive(k) then return pre .. REDACTED .. post end
+		return pre .. v .. post
+	end)
+	line = line:gsub("(^|[^%w_])([%w_.-]+)=(['\"]?)([^%s'\"]*)(['\"]?)", function(prefix, k, q1, v, q2)
+		if is_sensitive(k) then return prefix .. k .. "=" .. q1 .. REDACTED .. q2 end
+		return prefix .. k .. "=" .. q1 .. v .. q2
+	end)
+	return line
+end
+
+local function redact_text(text)
+	if type(text) ~= "string" then return "" end
+	local out = {}
+	for line in text:gmatch("[^\r\n]*") do
+		out[#out + 1] = redact_line(line)
+	end
+	return table.concat(out, "\n")
+end
+
+local function redact_table(t)
+	if type(t) ~= "table" then return t end
+	local r = {}
+	for k, v in pairs(t) do
+		if type(k) == "string" and is_sensitive(k) then
+			r[k] = "***"
+		elseif type(v) == "table" then
+			r[k] = redact_table(v)
+		else
+			r[k] = v
+		end
+	end
+	return r
+end
+
+local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }
+local function find_bin(name)
+	for _, d in ipairs(BIN_DIRS) do
+		local p = d .. "/" .. name
+		if fs.access(p, "x") then return p end
+	end
+	return nil
+end
+
+local UCI_BIN = find_bin("uci")
+local WIFI_BIN = find_bin("wifi")
+local IWINFO_BIN = find_bin("iwinfo")
+local TAR_BIN = find_bin("tar")
+local SHA_BIN = find_bin("sha256sum")
+local LOGREAD_BIN = find_bin("logread")
+local IWPRIV_BIN = find_bin("iwpriv")
+
+local function q(s)
+	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function sh(cmd)
+	local tmp = os.tmpname()
+	local ok, c = os.execute(cmd .. " >" .. q(tmp) .. " 2>&1")
+	local out = ""
+	local f = io.open(tmp, "rb")
+	if f then out = f:read("*a") or ""; f:close() end
+	os.remove(tmp)
+	local code = 0
+	if type(ok) == "number" then code = ok
+	elseif ok == true then code = 0
+	elseif ok == false then code = 1
+	else code = math.floor((c or 256) / 256)
+	end
+	return code, out
+end
+
+local function rm_rf(p)
+	local function rec(x)
+		if fs.stat(x, "type") ~= "dir" then return end
+		for n in fs.dir(x) or {} do
+			if n ~= "." and n ~= ".." then
+				local c = x .. "/" .. n
+				if fs.stat(c, "type") == "dir" then rec(c) else os.remove(c) end
+			end
+		end
+		fs.rmdir(x)
+	end
+	pcall(rec, p)
+end
+
+local function read_file(p)
+	local f = io.open(p, "rb")
+	if not f then return nil end
+	local c = f:read("*a")
+	f:close()
+	return c
+end
+
+local function plugin_version()
+	local v = read_file(STAMP_FILE)
+	if v then v = v:match("^%s*([%w.%-]+)") end
+	if v and v ~= "" then return v end
+	return PLUGIN_VERSION
+end
+
+local function write_atomic(path, content)
+	local tmp = path .. ".mtk-tmp"
+	local f = io.open(tmp, "wb")
+	if not f then return false end
+	f:write(content)
+	f:close()
+	return os.rename(tmp, path)
+end
+
+local function copy_file(src, dst)
+	local c = read_file(src)
+	if not c then return false end
+	return write_atomic(dst, c)
+end
+
+local function ubus_call(method, args)
+	local ok, u = pcall(function() return require("ubus").connect() end)
+	if not ok or not u then return nil, "ubus unavailable" end
+	local result = u:call("network.wireless", method, args or {})
+	u:close()
+	return result
+end
+
+local function wireless_iface_names()
+	local out = {}
+	for n in fs.dir("/sys/class/net") or {} do
+		if n:match("^ra%d") or n:match("^rai%d") or n:match("^apcli") then
+			out[#out + 1] = n
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+local function extract_radios(w)
+	if not w then return {} end
+	if type(w.radios) == "table" then
+		local out = {}
+		for _, r in ipairs(w.radios) do
+			if type(r) == "table" then out[#out + 1] = r end
+		end
+		return out
+	end
+	local out = {}
+	for _, r in pairs(w) do
+		if type(r) == "table" and (r.ifaces or r.disabled ~= nil or r.type or r.name) then
+			out[#out + 1] = r
+		end
+	end
+	return out
+end
+
+local function parse_assoclist(out)
+	local list, cur = {}, nil
+	for line in out:gmatch("[^\r\n]+") do
+		local mac = line:match("^%s*Station%s+([%x:]+)")
+		if mac then
+			cur = { mac = mac }
+			list[#list + 1] = cur
+		elseif cur then
+			local sig = line:match("signal:%s*(-?%d+)")
+			local rate = line:match("tx bitrate:%s*([%d.]+)")
+			local rxrate = line:match("rx bitrate:%s*([%d.]+)")
+			local idle = line:match("inactive time:%s*(%d+)")
+			if sig then cur.signal = tonumber(sig) end
+			if rate then cur.tx_rate = tonumber(rate) end
+			if rxrate then cur.rx_rate = tonumber(rxrate) end
+			if idle then cur.inactive = tonumber(idle) end
+		end
+	end
+	return list
+end
+
+local function parse_scan(out)
+	local cells, cur = {}, nil
+	for line in out:gmatch("[^\r\n]+") do
+		local addr = line:match("Cell%s+%d+%s+-%s+Address:%s*([%x:]+)")
+		if addr then
+			cur = { address = addr }
+			cells[#cells + 1] = cur
+		elseif cur then
+			local essid = line:match('ESSID:%s*"([^"]*)"')
+			local mode = line:match("Mode:%s*([%w]+)")
+			local chan = line:match("Channel:%s*(%d+)")
+			local sig = line:match("Signal:%s*(-?%d+)")
+			local enc = line:match("Encryption:%s*([^%s][^\r\n]*)")
+			local ht = line:match("HT Mode:%s*([%w]+)")
+			local bssid = line:match("BSSID:%s*([%x:]+)")
+			local freq = line:match("Frequency:%s*([%d%.]+)")
+			if essid then cur.essid = clean_text(essid) end
+			if mode then cur.mode = mode end
+			if chan then cur.channel = tonumber(chan) end
+			if sig then cur.signal = tonumber(sig) end
+			if enc then cur.encryption = clean_text(enc) end
+			if ht then cur.ht_mode = ht end
+			if bssid then cur.bssid = bssid end
+			if freq then cur.frequency = tonumber(freq) end
+		end
+	end
+	return cells
+end
+
+local ADVANCED_FIELDS = {
+	{ id = "hwmode", label = "Mode", category = "rf", type = "enum", values = { "11a", "11g", "11na", "11ac", "11ax" }, source = "mtwifi-cfg hwmode", verified = false, reload = "reload", note = "主无线模式，与 dat 生成关联" },
+	{ id = "htmode", label = "Bandwidth", category = "rf", type = "enum", values = { "HT20", "HT40", "VHT80", "HE80" }, source = "mtwifi-cfg htmode", verified = false, reload = "reload", note = "MT7981 建议最高 80MHz，160MHz 需实机确认" },
+	{ id = "channel", label = "Channel", category = "rf", type = "integer", min = 0, max = 196, default = "auto", source = "wireless UCI channel", verified = false, reload = "reload" },
+	{ id = "country", label = "Country", category = "rf", type = "string", source = "wireless UCI country", verified = false, reload = "reload" },
+	{ id = "txpower", label = "TX Power", category = "power", type = "integer", min = 0, max = 30, source = "wireless UCI txpower", verified = false, reload = "reload", note = "dBm，0 为驱动默认" },
+	{ id = "bssid_num", label = "BSSID Number", category = "mbasic", type = "integer", min = 1, max = 16, source = "MBSSID SSIDn/WPAPSKn 索引", verified = false, reload = "restart", note = "分号 token 与 0/1 索引集中处理" },
+	{ id = "dtim_period", label = "DTIM Period", category = "misc", type = "integer", min = 1, max = 255, default = 1, source = "dat dtim", verified = false, reload = "reload" },
+	{ id = "beacon_int", label = "Beacon Interval", category = "misc", type = "integer", min = 20, max = 1000, default = 100, source = "dat beacon", verified = false, reload = "reload" },
+	{ id = "wmm_enable", label = "WMM", category = "wmm", type = "boolean", default = true, source = "wireless UCI / dat", verified = false, reload = "reload" },
+	{ id = "mu_mimo", label = "MU-MIMO", category = "mu", type = "boolean", default = true, source = "dat MuMimo", verified = false, reload = "reload" },
+	{ id = "ofdma", label = "OFDMA", category = "mu", type = "boolean", default = true, source = "dat Ofdma", verified = false, reload = "reload" },
+	{ id = "twt_enable", label = "TWT", category = "twt", type = "boolean", default = false, source = "dat TwtEnable", verified = false, reload = "reload" },
+	{ id = "ieee80211k", label = "802.11k", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
+	{ id = "ieee80211v", label = "802.11v", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
+	{ id = "ieee80211r", label = "802.11r", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
+	{ id = "band_steering", label = "Band Steering", category = "roam", type = "boolean", default = false, source = "dat BandSteering", verified = false, reload = "restart", note = "依赖 WAPP，参数格式需实机确认" },
+	{ id = "macfilter", label = "MAC Filter", category = "acl", type = "enum", values = { "disable", "allow", "deny" }, source = "wireless UCI macfilter", verified = false, reload = "reload" },
+	{ id = "maclist", label = "MAC List", category = "acl", type = "string", source = "wireless UCI maclist", verified = false, reload = "reload" },
+	{ id = "hwnat", label = "HW NAT", category = "chip", type = "boolean", default = true, source = "kernel/switch", verified = false, reload = "restart", note = "整机级别，变更影响全局" },
+}
+
+local MAP_COMPONENTS = { "wappctrl", "wapp", "bs20" }
+local MAP_FILES = { "1905d.cfg", "mapd_cfg" }
+local MAP_SERVICES = { "mapd", "wapp", "bs20" }
+
+local MODULES = {
+	{ id = "wireless", label = "Wireless UCI", src = "/etc/config/wireless", arc = "wireless.conf" },
+	{ id = "map_1905d", label = "MAP 1905d.cfg", src = MAP_DIR .. "/1905d.cfg", arc = "map/1905d.cfg" },
+	{ id = "map_mapd", label = "MAP mapd_cfg", src = MAP_DIR .. "/mapd_cfg", arc = "map/mapd_cfg" },
+	{ id = "wapp_uci", label = "WAPP UCI", src = "/etc/config/wapp", arc = "etc-config-wapp" },
+	{ id = "mapd_uci", label = "MAPD UCI", src = "/etc/config/mapd", arc = "etc-config-mapd" },
+}
+
+local function map_config_summary()
+	local out = {}
+	for _, name in ipairs(MAP_FILES) do
+		local p = MAP_DIR .. "/" .. name
+		local entry = { path = p, present = false, fields = {}, lines = 0 }
+		local c = read_file(p)
+		if c then
+			entry.present = true
+			entry.lines = select(2, c:gsub("\n", "\n"))
+			for line in c:gmatch("[^\r\n]+") do
+				local k, v = line:match("^%s*([%w_.-]+)%s*=%s*(.-)%s*$")
+				if k and not is_sensitive(k) then
+					entry.fields[#entry.fields + 1] = { key = k, value = v:sub(1, 120) }
+				end
+			end
+		end
+		out[#out + 1] = entry
+	end
+	return out
+end
+
+local function running_processes()
+	local names = { "wapp", "bs20", "mapd", "1905" }
+	local found, seen = {}, {}
+	for pid in fs.dir("/proc") or {} do
+		if pid:match("^%d+$") and not seen[pid] then
+			local f = io.open("/proc/" .. pid .. "/comm", "r")
+			if f then
+				local name = f:read("*l")
+				f:close()
+				if name then
+					for _, n in ipairs(names) do
+						if name:find(n, 1, true) then
+							seen[pid] = true
+							found[#found + 1] = { pid = tonumber(pid), name = clean_text(name) }
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+	table.sort(found, function(a, b) return a.pid < b.pid end)
+	return found
+end
+
+local function probe_command(bin, args, matcher)
+	if not bin then return { status = "unavailable", reason = "missing_or_probe_failed" } end
+	local code, out = sh(bin .. " " .. args)
+	out = clean_text(out)
+	if code ~= 0 or (matcher and not matcher(out)) then
+		return { status = "unavailable", exit_code = code, output = out:sub(1, 2000) }
+	end
+	return { status = "available", exit_code = code, output = out:sub(1, 2000) }
+end
+
+local function probe_first(specs)
+	for _, s in ipairs(specs) do
+		if s.bin then
+			local p = probe_command(s.bin, s.args, s.match)
+			if p.status == "available" then
+				p.tool = s.tool
+				p.command = s.bin .. " " .. s.args
+				return p
+			end
+		end
+	end
+	return { status = "unavailable", reason = "missing_or_probe_failed" }
+end
+
+local function runtime_probes()
+	local iface = wireless_iface_names()[1]
+	local probes = {
+		register = { status = "unavailable", reason = "missing_binary" },
+		spectrum = { status = "unavailable", reason = "missing_binary" },
+		wappctrl = { status = "unavailable", reason = "missing_binary" },
+	}
+	if IWPRIV_BIN and iface then
+		probes.register = probe_first({
+			{ bin = IWPRIV_BIN, args = q(iface) .. " --all", tool = "iwpriv", match = function(out)
+				local low = out:lower()
+				return low:find("register", 1, true) ~= nil or low:find("reg", 1, true) ~= nil
+			end },
+			{ bin = IWPRIV_BIN, args = q(iface) .. " help", tool = "iwpriv", match = function(out)
+				local low = out:lower()
+				return low:find("register", 1, true) ~= nil or low:find("reg_dump", 1, true) ~= nil
+			end },
+		})
+	end
+	local sp = find_bin("spectrum")
+	if sp then
+		probes.spectrum = probe_first({
+			{ bin = sp, args = "--help", tool = "spectrum", match = function(out) return out:lower():find("spectrum", 1, true) ~= nil end },
+			{ bin = sp, args = "-h", tool = "spectrum", match = function(out) return out:lower():find("spectrum", 1, true) ~= nil end },
+		})
+	elseif IWPRIV_BIN and iface then
+		probes.spectrum = probe_first({
+			{ bin = IWPRIV_BIN, args = q(iface) .. " --all", tool = "iwpriv", match = function(out)
+				return out:lower():find("spectrum", 1, true) ~= nil
+			end },
+		})
+	end
+	local wc = find_bin("wappctrl")
+	if wc then
+		probes.wappctrl = probe_first({
+			{ bin = wc, args = "-h", tool = "wappctrl", match = function(out) return out:lower():find("wapp", 1, true) ~= nil end },
+			{ bin = wc, args = "--help", tool = "wappctrl", match = function(out) return out:lower():find("wapp", 1, true) ~= nil end },
+		})
+	end
+	for _, s in ipairs(MAP_SERVICES) do
+		local initd = "/etc/init.d/" .. s
+		if fs.access(initd, "x") then
+			local code, out = sh(initd .. " running")
+			probes[s] = {
+				status = code == 0 and "running" or "available",
+				exit_code = code,
+				command = initd .. " running",
+				tool = "init.d",
+				output = clean_text(out):sub(1, 400),
+			}
+		else
+			probes[s] = { status = "unavailable", reason = "missing_service" }
+		end
+	end
+	return probes
+end
+
+local function status()
+	local w, err = ubus_call("status")
+	if not w then return { ok = false, error = err or "ubus network.wireless 不可用" } end
+	local radios, stations, station_count = {}, {}, 0
+	for _, r in ipairs(extract_radios(w)) do
+		local ri = {
+			id = r.name or r.id,
+			type = r.type,
+			path = r.path,
+			hwmode = r.hwmode,
+			channel = r.channel,
+			htmode = r.htmode,
+			txpower = r.txpower,
+			country = r.country,
+			disabled = r.disabled == true,
+			ifaces = {},
+		}
+		local ifs = r.ifaces or {}
+		if type(ifs) == "table" then
+			for _, f in ipairs(ifs) do
+				if type(f) == "table" then
+					local net = f.network
+					if type(net) == "table" then net = table.concat(net, " ") end
+					local fi = {
+						ifname = f.ifname,
+						ssid = clean_text(f.ssid or ""),
+						mode = f.mode,
+						network = net,
+						encryption = f.encryption,
+						macaddr = f.macaddr,
+						disabled = f.disabled == true,
+					}
+					ri.ifaces[#ri.ifaces + 1] = fi
+					if IWINFO_BIN and f.ifname and not f.disabled and (f.mode == "ap") then
+						local c, o = sh(IWINFO_BIN .. " " .. q(f.ifname) .. " assoclist")
+						if c == 0 then
+							local list = parse_assoclist(o)
+							stations[f.ifname] = list
+							station_count = station_count + #list
+						end
+					end
+				end
+			end
+		end
+		radios[#radios + 1] = ri
+	end
+	return {
+		ok = true,
+		up = w.up == true,
+		running = w.running == true,
+		radios = radios,
+		stations = stations,
+		station_count = station_count,
+		mtwifi = fs.access("/sys/module/mt_wifi"),
+		wireless_ifaces = wireless_iface_names(),
+	}
+end
+
+local ADV_FIELD_PROBES = {
+	hwmode = { uci = { "hwmode" } },
+	htmode = { uci = { "htmode" } },
+	channel = { uci = { "channel" } },
+	country = { uci = { "country" } },
+	txpower = { uci = { "txpower" } },
+	bssid_num = { multi_ssid = true },
+	dtim_period = { dat = { "Dtim", "dtim", "dtim_period" } },
+	beacon_int = { dat = { "Beacon", "beacon", "beacon_interval" } },
+	wmm_enable = { uci = { "wmm" }, dat = { "Wmm", "wmm" } },
+	mu_mimo = { uci = { "mu_mimo", "mumimo" }, dat = { "MuMimo", "mumimo" } },
+	ofdma = { uci = { "ofdma" }, dat = { "Ofdma", "ofdma" } },
+	twt_enable = { uci = { "twt_enable", "twt" }, dat = { "TwtEnable", "twt" } },
+	ieee80211k = { uci = { "ieee80211k" } },
+	ieee80211v = { uci = { "ieee80211v" } },
+	ieee80211r = { uci = { "ieee80211r" } },
+	band_steering = { uci = { "band_steering" }, dat = { "BandSteering", "bandsteering" } },
+	macfilter = { uci = { "macfilter" } },
+	maclist = { uci = { "maclist" } },
+	hwnat = { uci = { "hwnat" }, dat = { "HwNat", "hwnat" }, module = { "/sys/module/hnat", "/sys/module/mt_hnat", "/sys/module/eth_hnat" } },
+}
+
+local function find_keyword(keys, txt)
+	if type(keys) ~= "table" or type(txt) ~= "string" then return false end
+	for _, kw in ipairs(keys) do
+		if txt:find(kw, 1, true) then return true end
+	end
+	return false
+end
+
+local function probe_advanced_fields()
+	local wireless_txt = ""
+	if UCI_BIN then
+		local c, o = sh(UCI_BIN .. " show wireless")
+		if c == 0 then wireless_txt = o or "" end
+	end
+	local dat_chunks = {}
+	for n in fs.dir("/etc/wireless") or {} do
+		local c = read_file("/etc/wireless/" .. n)
+		if c then dat_chunks[#dat_chunks + 1] = c end
+	end
+	local dat_txt = table.concat(dat_chunks, "\n")
+	local out = {}
+	for _, f in ipairs(ADVANCED_FIELDS) do
+		local spec = ADV_FIELD_PROBES[f.id]
+		local verified = false
+		if spec then
+			if spec.multi_ssid then
+				local n = 0
+				for _ in wireless_txt:gmatch("option%s+ssid%s+") do n = n + 1 end
+				verified = n >= 2
+			else
+				verified = find_keyword(spec.uci, wireless_txt)
+					or find_keyword(spec.dat, dat_txt)
+				if not verified and spec.module then
+					for _, p in ipairs(spec.module) do
+						if fs.access(p) then verified = true break end
+					end
+				end
+			end
+		end
+		local copy = {
+			id = f.id,
+			label = f.label,
+			category = f.category,
+			type = f.type,
+			verified = verified,
+		}
+		if f.values then copy.values = f.values end
+		if f.min then copy.min = f.min end
+		if f.max then copy.max = f.max end
+		if f.default ~= nil then copy.default = f.default end
+		if f.source then copy.source = f.source end
+		if f.reload then copy.reload = f.reload end
+		if f.note then copy.note = f.note end
+		out[#out + 1] = copy
+	end
+	return out
+end
+
+local function capabilities()
+	local map_present = fs.access(MAP_DIR .. "/1905d.cfg") or fs.access(MAP_DIR .. "/mapd_cfg")
+	local comps = {}
+	for _, n in ipairs(MAP_COMPONENTS) do
+		local p = find_bin(n)
+		comps[n] = p ~= nil
+	end
+	local svcs = {}
+	for _, n in ipairs(MAP_SERVICES) do
+		svcs[n] = fs.access("/etc/init.d/" .. n, "x")
+	end
+	local has_svc = svcs.mapd or svcs.wapp or svcs.bs20
+	local probes = runtime_probes()
+	return {
+		ok = true,
+		version = plugin_version(),
+		hardware = {
+			mtwifi = fs.access("/sys/module/mt_wifi"),
+			chipset = fs.access("/sys/module/mt_wifi") and "MT7981/MT7986" or nil,
+			macaddr = read_file("/sys/class/net/wlan0/address"),
+		},
+		tools = {
+			uci = UCI_BIN ~= nil,
+			wifi = WIFI_BIN ~= nil,
+			iwinfo = IWINFO_BIN ~= nil,
+			tar = TAR_BIN ~= nil,
+			sha256 = SHA_BIN ~= nil,
+			logread = LOGREAD_BIN ~= nil,
+			l1util = fs.access("/usr/sbin/l1util") or fs.access("/usr/bin/l1util"),
+			mtwifi_cfg = fs.access("/usr/share/mtwifi-cfg") or fs.access("/usr/bin/mtwifi-cfg") or fs.access("/usr/sbin/mtwifi-cfg"),
+		},
+		map = {
+			config = map_present,
+			components = comps,
+			services = svcs,
+			has_managed_service = has_svc,
+			wappctrl_probe = probes.wappctrl,
+			probes = probes,
+		},
+		wireless_writable = fs.access("/etc/config/wireless", "w"),
+		limits = { ap_max = 16, apcli_max = 1 },
+		advanced_fields = probe_advanced_fields(),
+		backend = "mtk-dash2",
+	}
+end
+
+local function topology()
+	local cfg = map_config_summary()
+	local procs = running_processes()
+	local w = ubus_call("status")
+	local radios = {}
+	if w then
+		for _, r in ipairs(extract_radios(w)) do
+			local ifs = {}
+			for _, f in ipairs(r.ifaces or {}) do
+				if type(f) == "table" then
+					ifs[#ifs + 1] = { ifname = f.ifname, ssid = clean_text(f.ssid or ""), mode = f.mode, disabled = f.disabled == true }
+				end
+			end
+			radios[#radios + 1] = { id = r.name or r.id, channel = r.channel, hwmode = r.hwmode, ifaces = ifs }
+		end
+	end
+	local comps = {}
+	for _, n in ipairs(MAP_COMPONENTS) do comps[n] = find_bin(n) ~= nil end
+	local svcs = {}
+	for _, n in ipairs(MAP_SERVICES) do svcs[n] = fs.access("/etc/init.d/" .. n, "x") end
+	local present = #cfg > 0 and cfg[1].present or false
+	for _, e in ipairs(cfg) do if e.present then present = true end end
+	local probes = runtime_probes()
+	return {
+		ok = true,
+		available = present,
+		components = comps,
+		services = svcs,
+		probes = probes,
+		processes = procs,
+		config = cfg,
+		radios = radios,
+		complete = false,
+		hint = "MAP 闭源工具仅做固定查询与解析，拓扑可能不完整；运行时能力以 probes 状态为准",
+	}
+end
+
+local function diagnostics()
+	local steps = {}
+	local function add(name, cmd, ok, extra)
+		local s = { name = name, command = cmd, ok = ok == true, exit_code = 0 }
+		for k, v in pairs(extra or {}) do s[k] = v end
+		steps[#steps + 1] = s
+	end
+
+	local w, err = ubus_call("status")
+	if w then
+		add("无线状态", "ubus network.wireless status", true, { output = json.encode(redact_table(w)) })
+	else
+		add("无线状态", "ubus network.wireless status", false, { error = err or "调用失败" })
+	end
+
+	if UCI_BIN then
+		local code, out = sh(UCI_BIN .. " show wireless")
+		add("UCI 无线配置", UCI_BIN .. " show wireless", code == 0, { exit_code = code, output = redact_text(out) })
+	else
+		add("UCI 无线配置", "uci", false, { error = "缺少 uci 命令" })
+	end
+
+	local dat = {}
+	for n in fs.dir("/etc/wireless") or {} do
+		local p = "/etc/wireless/" .. n
+		local st = fs.stat(p, "size") or 0
+		dat[#dat + 1] = { name = n, bytes = st }
+	end
+	table.sort(dat, function(a, b) return a.name < b.name end)
+	add("DAT 文件", "/etc/wireless", true, { files = dat })
+
+	if LOGREAD_BIN then
+		local code, out = sh(LOGREAD_BIN .. " -l 120")
+		local filtered = {}
+		for line in out:gmatch("[^\r\n]+") do
+			if line:match("mt%-wifi") or line:match("wapp") or line:match("bs20") or line:match("1905") or line:match("mt7615") or line:match("ra0") or line:match("apcli") or line:match("mapd") then
+				filtered[#filtered + 1] = clean_text(redact_line(line))
+			end
+		end
+		add("系统日志(过滤)", LOGREAD_BIN .. " -l 120", code == 0, { exit_code = code, output = table.concat(filtered, "\n") })
+	else
+		add("系统日志", "logread", false, { error = "缺少 logread" })
+	end
+
+	local mapsum = map_config_summary()
+	add("MAP 配置", "/etc/map/*", true, { files = mapsum })
+
+	local ifaces = wireless_iface_names()
+	add("无线接口", "/sys/class/net", true, { interfaces = ifaces })
+
+	local probes = runtime_probes()
+	add("运行时能力探测", "固定只读探测", true, { probes = probes })
+
+	return { ok = true, redacted = true, collected = os.date("%Y-%m-%dT%H:%M:%S"), probes = probes, steps = steps }
+end
+
+local function set_radio(args)
+	args = args or {}
+	local device = args.device
+	if type(device) ~= "string" or not device:match("^radio%d+$") then
+		return { ok = false, error = "device 参数非法" }
+	end
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令" } end
+	local code, out = sh(UCI_BIN .. " get wireless." .. device)
+	if code ~= 0 or not out:find("wifi%-device", 1, true) then
+		return { ok = false, error = "device 不存在或不是 wifi-device" }
+	end
+	local disabled = args.enabled and "0" or "1"
+	local c1 = sh(UCI_BIN .. " set wireless." .. device .. ".disabled=" .. disabled)
+	local c2 = sh(UCI_BIN .. " commit wireless")
+	local res = { ok = c1 == 0 and c2 == 0, device = device, disabled = disabled == "1", applied = false }
+	if not res.ok then
+		res.error = "uci 写入失败"
+		return res
+	end
+	if args.apply then
+		if not WIFI_BIN then
+			res.error = "已写入 UCI，但缺少 wifi 命令，未应用"
+			return res
+		end
+		local c3 = sh(WIFI_BIN .. " reload")
+		res.applied = c3 == 0
+		res.apply_exit_code = c3
+	end
+	return res
+end
+
+local function scan(args)
+	args = args or {}
+	local iface = args.iface
+	if type(iface) ~= "string" or not iface:match("^[%w_.-]+$") then
+		return { ok = false, error = "iface 参数非法" }
+	end
+	if not IWINFO_BIN then return { ok = false, error = "缺少 iwinfo" } end
+	local code, out = sh(IWINFO_BIN .. " " .. q(iface) .. " scan")
+	if code ~= 0 then
+		return { ok = false, exit_code = code, iface = iface, output = clean_text(out), error = "扫描失败（接口可能未启用）" }
+	end
+	return { ok = true, iface = iface, cells = parse_scan(out) }
+end
+
+local function make_archive(dir, ts)
+	local meta = {
+		plugin = "luci-app-mtk-dash2",
+		version = PLUGIN_VERSION,
+		created = os.date("%Y-%m-%dT%H:%M:%S"),
+		redacted = true,
+		modules = {},
+	}
+	local c, rel = sh("cat /etc/openwrt_release 2>/dev/null | grep -E '^(DISTRIB_DESCRIPTION|DISTRIB_RELEASE)' | head -2")
+	meta.firmware = c == 0 and clean_text(rel) or nil
+	for _, m in ipairs(MODULES) do
+		local content = read_file(m.src)
+		if content then
+			local red = redact_text(content)
+			local dest = dir .. "/" .. m.arc
+			local parent = dest:match("^(.*)/")
+			if parent then fs.mkdir(parent) end
+			fs.writefile(dest, red)
+			meta.modules[#meta.modules + 1] = {
+				id = m.id,
+				label = m.label,
+				source = m.src,
+				arc = m.arc,
+				redacted = true,
+				bytes = #content,
+			}
+		end
+	end
+	fs.writefile(dir .. "/metadata.json", json.encode(meta))
+	local arch = ARCHIVE_DIR .. "/" .. ts .. ".tar.gz"
+	local code = sh(TAR_BIN .. " czf " .. q(arch) .. " -C " .. q(dir) .. " .")
+	if code ~= 0 then
+		rm_rf(dir)
+		return nil, "tar 归档失败", code
+	end
+	rm_rf(dir)
+	local size = fs.stat(arch, "size") or 0
+	local sha = ""
+	if SHA_BIN then
+		local _, so = sh(SHA_BIN .. " " .. q(arch))
+		sha = so:match("^([%x]+)") or ""
+	end
+	return {
+		id = ts,
+		file = arch,
+		size = size,
+		sha256 = sha,
+		created = meta.created,
+		redacted = true,
+		modules = meta.modules,
+	}, nil, 0
+end
+
+local function backup()
+	if not TAR_BIN then return { ok = false, error = "缺少 tar，无法创建压缩归档" } end
+	fs.mkdir(ARCHIVE_DIR)
+	local ts = os.date("%Y%m%d-%H%M%S")
+	local dir = ARCHIVE_DIR .. "/" .. ts .. ".d"
+	fs.mkdir(dir)
+	local manifest, err, code = make_archive(dir, ts)
+	if not manifest then return { ok = false, error = err or "备份失败", exit_code = code } end
+	return { ok = true, backup = manifest }
+end
+
+local function read_archive_meta(full)
+	if not TAR_BIN then return nil end
+	local code, out = sh(TAR_BIN .. " xzf " .. q(full) .. " -O ./metadata.json")
+	if code ~= 0 then return nil end
+	local ok, d = pcall(json.decode, out)
+	if ok and type(d) == "table" then return d end
+	return nil
+end
+
+local function list_backups()
+	if not TAR_BIN then return { ok = false, error = "缺少 tar" } end
+	local list = {}
+	if fs.access(ARCHIVE_DIR) then
+		for n in fs.dir(ARCHIVE_DIR) do
+			local ts = n:match("^([%dTZ_:-]+)%.tar%.gz$")
+			if ts then
+				local full = ARCHIVE_DIR .. "/" .. n
+				local meta = read_archive_meta(full) or {}
+				list[#list + 1] = {
+					id = ts,
+					file = full,
+					size = fs.stat(full, "size") or 0,
+					created = meta.created or ts,
+					redacted = meta.redacted ~= false,
+					version = meta.version,
+					firmware = meta.firmware,
+					modules = meta.modules or {},
+				}
+			end
+		end
+	end
+	table.sort(list, function(a, b) return a.id > b.id end)
+	return { ok = true, backups = list }
+end
+
+local function validate_backup_id(id)
+	if type(id) ~= "string" or not id:match("^[%dTZ_:-]+$") then return nil end
+	local full = ARCHIVE_DIR .. "/" .. id .. ".tar.gz"
+	if not fs.access(full) then return nil end
+	return full
+end
+
+local function extract_archive(full)
+	local tmp = os.tmpname()
+	os.remove(tmp)
+	fs.mkdir(tmp)
+	local code = sh(TAR_BIN .. " xzf " .. q(full) .. " -C " .. q(tmp))
+	if code ~= 0 then rm_rf(tmp); return nil, code end
+	return tmp, 0
+end
+
+local function diff_files(arc_lines, cur_lines)
+	local changes, samples = 0, {}
+	local max_n = math.max(#arc_lines, #cur_lines)
+	for i = 1, max_n do
+		if arc_lines[i] ~= cur_lines[i] then
+			changes = changes + 1
+			if #samples < 8 then
+				samples[#samples + 1] = {
+					line = i,
+					archived = arc_lines[i] or "",
+					current = cur_lines[i] or "",
+				}
+			end
+		end
+	end
+	return changes, samples
+end
+
+local function split_lines(text)
+	local out = {}
+	for line in text:gmatch("([^\r\n]*)\r?\n?") do
+		if line ~= "" then out[#out + 1] = line end
+	end
+	return out
+end
+
+local function restore_preview(args)
+	args = args or {}
+	local full = validate_backup_id(args.backup)
+	if not full then return { ok = false, error = "备份不存在或 ID 非法" } end
+	local tmp, code = extract_archive(full)
+	if not tmp then return { ok = false, error = "解压失败", exit_code = code } end
+	local meta = read_archive_meta(full) or {}
+	local files = {}
+	for _, m in ipairs(meta.modules or {}) do
+		local arc_file = tmp .. "/" .. (m.arc or m.id)
+		local content = read_file(arc_file)
+		local cur = read_file(m.source or "")
+		local arc_lines = split_lines(content or "")
+		local cur_lines = split_lines(cur or "")
+		local changes, samples = diff_files(arc_lines, cur_lines)
+		files[#files + 1] = {
+			id = m.id,
+			label = m.label,
+			source = m.source,
+			archived = content ~= nil,
+			current_present = cur ~= nil,
+			changes = changes,
+			samples = samples,
+		}
+	end
+	rm_rf(tmp)
+	return {
+		ok = true,
+		backup = args.backup,
+		created = meta.created,
+		version = meta.version,
+		firmware = meta.firmware,
+		redacted = meta.redacted ~= false,
+		modules = meta.modules or {},
+		files = files,
+	}
+end
+
+local function merge_restore(arc_content, cur_content)
+	local arc_lines = split_lines(arc_content or "")
+	local cur_lines = split_lines(cur_content or "")
+	local out, skipped = {}, {}
+	for i, al in ipairs(arc_lines) do
+		if al:find(REDACTED, 1, true) then
+			local cl = cur_lines[i]
+			if cl and not cl:find(REDACTED, 1, true) and (cl:match("^%s*option%s+[%w_]+") or cl:match("^%s*[%w_.-]+%s*=")) then
+				out[#out + 1] = cl
+			else
+				out[#out + 1] = al
+				skipped[#skipped + 1] = {
+					line = i,
+					key = al:match("option%s+([%w_]+)") or al:match("^%s*([%w_.-]+)%s*=") or "?",
+					reason = "当前配置无对应真实值，保留脱敏占位，需重新设置",
+				}
+			end
+		else
+			out[#out + 1] = al
+		end
+	end
+	return table.concat(out, "\n") .. "\n", skipped
+end
+
+local function restore(args)
+	args = args or {}
+	local full = validate_backup_id(args.backup)
+	if not full then return { ok = false, error = "备份不存在或 ID 非法" } end
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令" } end
+	local rb = backup()
+	if not rb.ok then return { ok = false, error = "恢复前创建回滚点失败，已中止：" .. (rb.error or "") } end
+	local tmp, code = extract_archive(full)
+	if not tmp then return { ok = false, error = "解压失败", exit_code = code } end
+	local restored, skipped_all = {}, {}
+	for _, m in ipairs(MODULES) do
+		local arc_file = tmp .. "/" .. m.arc
+		local content = read_file(arc_file)
+		if content then
+			local cur = read_file(m.src) or ""
+			local merged, skipped = merge_restore(content, cur)
+			copy_file(m.src, m.src .. ".mtk-pre-restore")
+			if write_atomic(m.src, merged) then
+				restored[#restored + 1] = { id = m.id, path = m.src, bytes = #merged }
+				for _, s in ipairs(skipped) do
+					s.path = m.src
+					skipped_all[#skipped_all + 1] = s
+				end
+			else
+				restored[#restored + 1] = { id = m.id, path = m.src, error = "写入失败" }
+			end
+		end
+	end
+	rm_rf(tmp)
+	local verify = sh(UCI_BIN .. " show wireless")
+	if verify ~= 0 then
+		for _, m in ipairs(MODULES) do
+			if fs.access(m.src .. ".mtk-pre-restore") then
+				copy_file(m.src .. ".mtk-pre-restore", m.src)
+				os.remove(m.src .. ".mtk-pre-restore")
+			end
+		end
+		return { ok = false, error = "恢复后 UCI 校验失败，已回滚所有文件", rollback_backup = rb.backup.id }
+	end
+	return {
+		ok = true,
+		restored = restored,
+		skipped = skipped_all,
+		rollback_backup = rb.backup.id,
+		redacted_note = "归档已脱敏；恢复时敏感字段保留当前值，无法保留的字段已列入 skipped",
+	}
+end
+
+local function apply_wireless()
+	if not WIFI_BIN then return { ok = false, error = "缺少 wifi 命令" } end
+	local rb = backup()
+	if not rb.ok then return { ok = false, error = "应用前创建备份失败，已中止：" .. (rb.error or "") } end
+	local before = status()
+	local code, out = sh(WIFI_BIN .. " reload")
+	local after = status()
+	return {
+		ok = code == 0,
+		exit_code = code,
+		output = clean_text(out),
+		rollback_backup = rb.backup.id,
+		before = { up = before.up, running = before.running, station_count = before.station_count },
+		after = { up = after.up, running = after.running, station_count = after.station_count },
+	}
+end
+
+local function apply_map(args)
+	args = args or {}
+	local svcs = {}
+	for _, n in ipairs(MAP_SERVICES) do
+		if fs.access("/etc/init.d/" .. n, "x") then svcs[#svcs + 1] = n end
+	end
+	if #svcs == 0 then
+		return { ok = false, degraded = true, error = "未检测到可确认的 MAP 服务（mapd/wapp/bs20 均不存在），配置已落盘，重载需人工执行" }
+	end
+	if not args.restart then
+		return { ok = false, need_restart = true, services = svcs, error = "需重启 MAP 服务以应用配置，请二次确认后传 restart=true" }
+	end
+	local rb = backup()
+	if not rb.ok then return { ok = false, error = "应用前创建备份失败，已中止：" .. (rb.error or "") } end
+	local results = {}
+	for _, s in ipairs(svcs) do
+		local c, o = sh("/etc/init.d/" .. s .. " restart")
+		results[#results + 1] = { service = s, exit_code = c, ok = c == 0, output = clean_text(o) }
+	end
+	local all_ok = true
+	for _, r in ipairs(results) do if not r.ok then all_ok = false end end
+	return { ok = all_ok, results = results, rollback_backup = rb.backup.id }
+end
+
+function list_methods()
+	return {
+		status = {},
+		capabilities = {},
+		topology = {},
+		diagnostics = {},
+		set_radio = { device = "", enabled = true, apply = false },
+		scan = { iface = "" },
+		apply_wireless = {},
+		apply_map = { restart = false },
+		backup = {},
+		list_backups = {},
+		restore_preview = { backup = "" },
+		restore = { backup = "" },
+	}
+end
+
+function call(method, args)
+	if method == "status" then return status() end
+	if method == "capabilities" then return capabilities() end
+	if method == "topology" then return topology() end
+	if method == "diagnostics" then return diagnostics() end
+	if method == "set_radio" then return set_radio(args) end
+	if method == "scan" then return scan(args) end
+	if method == "apply_wireless" then return apply_wireless() end
+	if method == "apply_map" then return apply_map(args) end
+	if method == "backup" then return backup() end
+	if method == "list_backups" then return list_backups() end
+	if method == "restore_preview" then return restore_preview(args) end
+	if method == "restore" then return restore(args) end
+	return { ok = false, error = "unknown method" }
+end
+
+local method = arg[1]
+if not method or method == "list" then
+	io.write(json.encode(list_methods()))
+	io.write("\n")
+else
+	local args = {}
+	if arg[2] then
+		local ok, d = pcall(json.decode, arg[2])
+		if ok and type(d) == "table" then args = d end
+	end
+	local ok, res = pcall(call, method, args)
+	if not ok then res = { ok = false, error = tostring(res) } end
+	io.write(json.encode(res))
+	io.write("\n")
+end

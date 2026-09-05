@@ -1,0 +1,15 @@
+{
+  "luci-app-mtk-dash2": {
+    "description": "MTK Dash2 management",
+    "read": {
+      "ubus": {
+        "mtk-dash2": ["status", "capabilities", "topology", "diagnostics", "list_backups", "restore_preview"]
+      }
+    },
+    "write": {
+      "ubus": {
+        "mtk-dash2": ["set_radio", "scan", "apply_wireless", "apply_map", "backup", "restore"]
+      }
+    }
+  }
+}

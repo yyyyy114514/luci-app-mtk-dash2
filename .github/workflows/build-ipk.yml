@@ -1,0 +1,89 @@
+name: Build IPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Plugin version (x.y.z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SDK_VERSION: 24.10.4
+  SDK_TARGET: mediatek/filogic
+  SDK_FILE: immortalwrt-sdk-24.10.4-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+  MIRROR_BASE: https://mirrors.vsean.net/openwrt
+
+jobs:
+  build-ipk:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Validate and inject version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          printf '%s\n' "$INPUT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          printf '%s\n' "$INPUT_VERSION" > root/usr/share/luci-app-mtk-dash2/VERSION
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=$INPUT_VERSION/" Makefile
+          sed -i 's/^PKG_RELEASE:=.*/PKG_RELEASE:=/' Makefile
+
+      - name: Restore SDK cache
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: openwrt
+          key: immortalwrt-sdk-${{ env.SDK_VERSION }}-${{ env.SDK_TARGET }}
+
+      - name: Download SDK from vsean mirror
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p openwrt
+          curl --fail --location --retry 3 --output sdk.tar.zst \\
+            "$MIRROR_BASE/releases/$SDK_VERSION/targets/$SDK_TARGET/$SDK_FILE"
+          tar --zstd -xf sdk.tar.zst -C openwrt --strip-components=1
+          rm -f sdk.tar.zst
+
+      - name: Configure feeds and source mirror
+        working-directory: openwrt
+        run: |
+          set -eu
+          sed -i "s|https://downloads\\.immortalwrt\\.org|$MIRROR_BASE|g" feeds.conf.default 2>/dev/null || true
+          ./scripts/feeds update luci
+          ./scripts/feeds install luci
+          printf '%s\n' 'CONFIG_USE_SOURCE_MIRROR=y' >> .config
+          printf '%s\n' 'CONFIG_SOURCE_MIRROR_URL="https://mirrors.vsean.net/openwrt"' >> .config
+          make defconfig
+
+      - name: Install package into SDK
+        run: |
+          set -eu
+          mkdir -p openwrt/package/luci-app-mtk-dash2
+          cp -a Makefile luasrc htdocs root openwrt/package/luci-app-mtk-dash2/
+
+      - name: Reconfigure package selection
+        working-directory: openwrt
+        run: make defconfig
+
+      - name: Compile IPK only
+        working-directory: openwrt
+        run: make package/luci-app-mtk-dash2/compile V=s -j"$(nproc)"
+
+      - name: Upload IPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-mtk-dash2-${{ inputs.version }}
+          if-no-files-found: error
+          path: openwrt/bin/packages/**/luci-app-mtk-dash2_*.ipk
+
+      - name: Trim SDK cache
+        if: always()
+        run: |
+          rm -rf openwrt/build_dir openwrt/staging_dir openwrt/tmp openwrt/bin
