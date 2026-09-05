@@ -34,6 +34,21 @@ jobs:
           sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=$INPUT_VERSION/" Makefile
           sed -i 's/^PKG_RELEASE:=.*/PKG_RELEASE:=/' Makefile
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force || true
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential zstd binutils bzip2 cpio curl file flex bison gawk \
+            gettext git libncurses-dev libssl-dev libtool libxml-parser-perl \
+            make python3 python3-setuptools python3-pyelftools rsync subversion \
+            swig time unzip wget
+
       - name: Restore SDK cache
         id: sdk-cache
         uses: actions/cache@v4
@@ -45,39 +60,65 @@ jobs:
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           set -eu
+          rm -rf openwrt
           mkdir -p openwrt
           curl --fail --location --retry 3 --output sdk.tar.zst \
             "$MIRROR_BASE/releases/$SDK_VERSION/targets/$SDK_TARGET/$SDK_FILE"
           tar --zstd -xf sdk.tar.zst -C openwrt --strip-components=1
           rm -f sdk.tar.zst
 
-      - name: Configure feeds and source mirror
+      - name: Update feeds and install all packages
         working-directory: openwrt
         run: |
           set -eu
-          sed -i "s|https://downloads\\.immortalwrt\\.org|$MIRROR_BASE|g" feeds.conf.default 2>/dev/null || true
-          ./scripts/feeds update luci packages
-          ./scripts/feeds install luci-base luci-lib-jsonc luci-lib-nixio lua
+          # full feed install is required: the plugin's dependency chain
+          # (luci-base -> rpcd-mod-luci -> libnl-tiny, ucode-mod-html -> ucode,
+          # lucihttp -> lua ...) needs every feed package's metadata present,
+          # otherwise defconfig drops the deps with "which does not exist"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure source mirror
+        working-directory: openwrt
+        run: |
+          set -eu
           printf '%s\n' 'CONFIG_USE_SOURCE_MIRROR=y' >> .config
-          printf '%s\n' 'CONFIG_SOURCE_MIRROR_URL="https://mirrors.vsean.net/openwrt"' >> .config
+          printf '%s\n' 'CONFIG_SOURCE_MIRROR_URL="$MIRROR_BASE"' >> .config
           make defconfig
 
       - name: Install package into SDK
         run: |
           set -eu
+          # drop stale copy first: the SDK dir may come from cache
+          rm -rf openwrt/package/luci-app-mtk-dash2
           mkdir -p openwrt/package/luci-app-mtk-dash2
           cp -a Makefile htdocs root openwrt/package/luci-app-mtk-dash2/
 
-      - name: Reconfigure package selection
+      - name: Select package and verify dependency resolution
         working-directory: openwrt
         run: |
           set -eu
+          rm -f bin/packages/*/luci-app-mtk-dash2*.ipk
           printf '%s\n' 'CONFIG_PACKAGE_luci-app-mtk-dash2=m' >> .config
-          make defconfig
+          make defconfig 2> defconfig-warnings.log || true
+          grep -q '^CONFIG_PACKAGE_luci-app-mtk-dash2=m' .config
+          # fail fast if any runtime dep could not be resolved
+          if grep -E "dependency on '(libnl-tiny|ucode|lua|rpcd|luci-lib-jsonc|luci-lib-nixio|libubus-lua|iwinfo|luci-base)' .* does not exist" defconfig-warnings.log; then
+            echo "::error::dependency resolution failed, see defconfig-warnings.log"
+            exit 1
+          fi
+          grep -E '^CONFIG_PACKAGE_(luci-app-mtk-dash2|luci-base|libnl-tiny|ucode|lua)=' .config | head
 
       - name: Compile IPK only
         working-directory: openwrt
-        run: make package/luci-app-mtk-dash2/compile V=s -j"$(nproc)"
+        run: |
+          set -eu
+          make package/luci-app-mtk-dash2/compile V=s -j"$(nproc)" > compile.log 2>&1 || {
+            echo "=== COMPILE FAILED (tail 150) ==="
+            tail -150 compile.log
+            exit 1
+          }
+          find bin/packages -name 'luci-app-mtk-dash2_*.ipk' -exec ls -l {} \;
 
       - name: Upload IPK
         uses: actions/upload-artifact@v4
