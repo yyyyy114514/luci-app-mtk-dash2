@@ -1,0 +1,341 @@
+#!/usr/bin/env lua
+local json = require "luci.jsonc"
+local fs = require "nixio.fs"
+
+local function bin(names)
+	if type(names) == "string" then names = { names } end
+	for _, name in ipairs(names) do
+		for _, d in ipairs({ "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }) do
+			local p = d .. "/" .. name
+			if fs.access(p, "x") then return p end
+		end
+	end
+end
+local UCI = bin("uci")
+local WIFI = bin("wifi")
+local IWPRIV = bin("iwpriv")
+local IWINFO = bin("iwinfo")
+local MTWIFI_CFG = bin({ "mtwifi_cfg", "mtwifi-cfg" })
+
+local function q(s) return "'" .. tostring(s):gsub("'", "'\\''") .. "'" end
+
+local function sh(c)
+	local f = os.tmpname()
+	local r = os.execute(c .. " >" .. q(f) .. " 2>&1")
+	local h = io.open(f, "rb")
+	local o = h and h:read("*a") or ""
+	if h then h:close() end
+	os.remove(f)
+	local code = 1
+	if r == true then code = 0
+	elseif type(r) == "number" then
+		if r == 0 then code = 0
+		elseif r % 256 == 0 then code = math.floor(r / 256)
+		else code = 128 + (r % 256)
+		end
+	end
+	return code, o:gsub("[^%g%s]", " "):sub(1, 8000)
+end
+
+local function iface_ok(a)
+	return type(a) == "string" and a:match("^[%w_.-]+$") and a or nil
+end
+
+local function safe_dir(path)
+	local it = fs.dir(path)
+	if not it then return function() return nil end end
+	return it
+end
+
+local function first_iface()
+	for n in safe_dir("/sys/class/net") do
+		if n:match("^ra%d") or n:match("^rai%d") or n:match("^apcli") then return n end
+	end
+end
+
+local REDACT_KEYS = { "[Kk][Ee][Yy]", "[Pp][Ss][Kk]", "[Pp][Aa][Ss][Ss]", "[Ss][Ee][Cc][Rr][Ee][Tt]", "[Cc][Rr][Ee][Dd]", "[Ww][Pp][Aa][Pp][Ss][Kk]", "[Ss][Aa][Ee]" }
+local function redact(s)
+	s = tostring(s or "")
+	for _, w in ipairs(REDACT_KEYS) do
+		s = s:gsub("([%w_.%-]*" .. w .. "[%w_.%-]*)=([^%s;]+)", "%1=***")
+		s = s:gsub("([%w_.%-]*" .. w .. "[%w_.%-]*%s*[:=]%s*)('[^']*')", "%1'***'")
+	end
+	return s
+end
+
+local DEVICE_FIELDS = {
+	{ id = "channel", uci = "channel", label = "信道", category = "射频", type = "string" },
+	{ id = "htmode", uci = "htmode", label = "频宽模式", category = "射频", type = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
+	{ id = "band", uci = "band", label = "频段", category = "射频", type = "enum", values = { "2g", "5g", "6g" } },
+	{ id = "txpower", uci = "txpower", label = "发射功率 (dBm)", category = "功率", type = "integer", min = 0, max = 30 },
+	{ id = "country", uci = "country", label = "国家码", category = "射频", type = "string" },
+	{ id = "beacon_int", uci = "beacon_int", label = "Beacon 间隔", category = "基础", type = "integer", min = 20, max = 1000 },
+	{ id = "dtim_period", uci = "dtim_period", label = "DTIM 周期", category = "基础", type = "integer", min = 1, max = 255 },
+	{ id = "twt", uci = "twt", label = "TWT", category = "节能", type = "enum", values = { "0", "1" } },
+	{ id = "mu_beamformer", uci = "mu_beamformer", label = "MU-MIMO Beamformer", category = "芯片", type = "boolean", reload = "reinstall" },
+	{ id = "whnat", uci = "whnat", label = "无线硬件 NAT", category = "芯片", type = "boolean", reload = "reinstall" },
+	{ id = "dbdc_main", uci = "dbdc_main", label = "DBDC 主射频", category = "芯片", type = "boolean" },
+	{ id = "bandsteering", uci = "bandsteering", label = "Band Steering", category = "漫游", type = "boolean" },
+}
+
+local IFACE_FIELDS = {
+	{ id = "ssid", uci = "ssid", label = "SSID", category = "基础", type = "string" },
+	{ id = "hidden", uci = "hidden", label = "隐藏 SSID", category = "基础", type = "boolean" },
+	{ id = "isolate", uci = "isolate", label = "客户端隔离", category = "基础", type = "boolean" },
+	{ id = "wmm", uci = "wmm", label = "WMM", category = "QoS", type = "boolean" },
+	{ id = "ieee80211k", uci = "ieee80211k", label = "802.11k", category = "漫游", type = "boolean" },
+	{ id = "ieee80211r", uci = "ieee80211r", label = "802.11r", category = "漫游", type = "boolean" },
+	{ id = "macfilter", uci = "macfilter", label = "MAC 过滤", category = "ACL", type = "enum", values = { "disable", "allow", "deny" } },
+	{ id = "maclist", uci = "maclist", label = "MAC 列表", category = "ACL", type = "string" },
+	{ id = "wpa_group_rekey", uci = "wpa_group_rekey", label = "组密钥更新 (s)", category = "安全", type = "integer", min = 0, max = 86400 },
+	{ id = "frag", uci = "frag", label = "分片阈值", category = "基础", type = "integer", min = 256, max = 2346 },
+	{ id = "rts", uci = "rts", label = "RTS 阈值", category = "基础", type = "integer", min = 1, max = 2347 },
+	{ id = "kicklow", uci = "kicklow", label = "弱信号踢除 RSSI", category = "漫游", type = "integer", min = -100, max = 0 },
+	{ id = "assocthres", uci = "assocthres", label = "关联阈值", category = "漫游", type = "integer", min = 0, max = 65535 },
+	{ id = "steeringthresold", uci = "steeringthresold", label = "引导阈值", category = "漫游", type = "integer", min = -100, max = 0 },
+	{ id = "mumimo_dl", uci = "mumimo_dl", label = "DL MU-MIMO", category = "芯片", type = "boolean" },
+	{ id = "mumimo_ul", uci = "mumimo_ul", label = "UL MU-MIMO", category = "芯片", type = "boolean" },
+	{ id = "ofdma_dl", uci = "ofdma_dl", label = "DL OFDMA", category = "芯片", type = "boolean" },
+	{ id = "ofdma_ul", uci = "ofdma_ul", label = "UL OFDMA", category = "芯片", type = "boolean" },
+	{ id = "amsdu", uci = "amsdu", label = "A-MSDU", category = "芯片", type = "boolean" },
+	{ id = "uapsd", uci = "uapsd", label = "U-APSD", category = "节能", type = "boolean" },
+	{ id = "autoba", uci = "autoba", label = "自动 BA", category = "芯片", type = "boolean" },
+}
+
+local ALLOWED = {}
+for _, f in ipairs(DEVICE_FIELDS) do f.target = "device"; f.source = "wireless.device"; ALLOWED[f.id] = f end
+for _, f in ipairs(IFACE_FIELDS) do f.target = "iface"; f.source = "wireless.iface"; ALLOWED[f.id] = f end
+
+local function runtime_probes()
+	local i = first_iface()
+	local probes = {
+		iface = i,
+		mtwifi_cfg = { status = MTWIFI_CFG and "available" or "unavailable" },
+		register = { status = "unavailable", reason = "missing iwpriv or iface" },
+		spectrum = { status = "unavailable", reason = "no user-space spectrum tool" },
+		temperature = { status = "unavailable", reason = "no confirmed entry" },
+	}
+	if i and IWPRIV then
+		local c, o = sh(IWPRIV .. " " .. q(i))
+		if c == 0 and #o > 0 then
+			probes.register = { status = "available", command = "iwpriv " .. i .. " (列表)", output = o:sub(1, 400) }
+			local ct, ot = sh(IWPRIV .. " " .. q(i) .. " get_temperature")
+			if ct == 0 and ot:match("[%-]?%d+") then
+				probes.temperature = { status = "available", command = "iwpriv " .. i .. " get_temperature", output = ot }
+			end
+		end
+	end
+	local sp = bin("spectrum")
+	if sp then
+		local c, o = sh(sp .. " --help")
+		if c == 0 and o:lower():find("spectrum", 1, true) then
+			probes.spectrum = { status = "available", command = sp .. " --help", output = o:sub(1, 400) }
+		end
+	end
+	return probes
+end
+
+local function capabilities()
+	local fields = {}
+	for _, f in ipairs(DEVICE_FIELDS) do
+		local x = {}; for k, v in pairs(f) do x[k] = v end; x.verified = true
+		fields[#fields + 1] = x
+	end
+	for _, f in ipairs(IFACE_FIELDS) do
+		local x = {}; for k, v in pairs(f) do x[k] = v end; x.verified = true
+		fields[#fields + 1] = x
+	end
+	return {
+		ok = true, fields = fields, probes = runtime_probes(),
+		tools = { uci = UCI ~= nil, wifi = WIFI ~= nil, iwpriv = IWPRIV ~= nil, iwinfo = IWINFO ~= nil, mtwifi_cfg = MTWIFI_CFG ~= nil },
+		writable = UCI ~= nil, apply = WIFI ~= nil,
+	}
+end
+
+local function valid(f, v)
+	if f.type == "boolean" then
+		if type(v) == "boolean" then return v and "1" or "0" end
+		if v == "1" or v == "0" or v == "true" or v == "false" then return (v == "1" or v == "true") and "1" or "0" end
+		return nil
+	end
+	if f.type == "integer" then
+		local n = tonumber(v)
+		if not n or n % 1 ~= 0 then return nil end
+		if f.min and n < f.min then return nil end
+		if f.max and n > f.max then return nil end
+		return tostring(n)
+	end
+	if type(v) ~= "string" then return nil end
+	v = v:gsub("^%s+", ""):gsub("%s+$", "")
+	if #v == 0 or #v > 64 or v:find("[%c%'%\"`$;|<>\\]") then return nil end
+	if f.values then
+		for _, x in ipairs(f.values) do if x == v then return v end end
+		return nil
+	end
+	if f.id == "country" and not v:match("^%u%u$") then return nil end
+	if f.id == "channel" and not (v == "auto" or v:match("^%d+$")) then return nil end
+	if f.id == "maclist" then
+		local count = 0
+		for mac in v:gmatch("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") do count = count + 1 end
+		if count == 0 then return nil end
+	end
+	return v
+end
+
+local function apply(a)
+	if not UCI then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	if type(a) ~= "table" or type(a.device) ~= "string" or not a.device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	if type(a.values) ~= "table" or next(a.values) == nil then return { ok = false, error = "values 参数非法" } end
+	local c, typ = sh(UCI .. " get wireless." .. q(a.device))
+	if c ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c } end
+	local target = a.iface and iface_ok(a.iface)
+	local before, changes = {}, {}
+	for k, v in pairs(a.values) do
+		local f = ALLOWED[k]
+		local value = f and valid(f, v)
+		if not value then return { ok = false, error = "参数或值非法: " .. tostring(k) } end
+		if f.target == "iface" and not target then return { ok = false, error = "iface 字段需要合法 iface 参数" } end
+		local section = f.target == "device" and a.device or target
+		local path = "wireless." .. section .. "." .. f.uci
+		local ec, old = sh(UCI .. " get " .. q(path))
+		before[path] = { exists = ec == 0, value = old:gsub("%s+$", "") }
+		ec = sh(UCI .. " set " .. q(path) .. "=" .. q(value))
+		if ec ~= 0 then return { ok = false, error = "UCI 写入失败: " .. k, exit_code = ec } end
+		changes[k] = value
+	end
+	c = sh(UCI .. " commit wireless")
+	if c ~= 0 then return { ok = false, error = "UCI 提交失败", exit_code = c } end
+	local steps = { { name = "uci commit", exit_code = c, ok = true } }
+	local applied = false
+	if a.apply == true then
+		if not WIFI then
+			return { ok = false, written = true, error = "缺少 wifi 命令，未应用", exit_code = 127 }
+		end
+		c = sh(WIFI .. " reload")
+		applied = c == 0
+		steps[#steps + 1] = { name = "wifi reload", exit_code = c, ok = applied }
+	end
+	if a.apply == true and not applied then
+		for path, x in pairs(before) do
+			if x.exists then sh(UCI .. " set " .. q(path) .. "=" .. q(x.value))
+			else sh(UCI .. " delete " .. q(path)) end
+		end
+		sh(UCI .. " commit wireless")
+		return { ok = false, applied = false, rolled_back = true, error = "无线配置应用失败，已回滚", exit_code = c, steps = steps }
+	end
+	if a.apply == true then
+		local vc, vo = sh(UCI .. " changes wireless")
+		steps[#steps + 1] = { name = "uci changes 复核", exit_code = vc, ok = vc == 0, output = vo:sub(1, 200) }
+	end
+	return { ok = true, device = a.device, iface = target, changed = changes, applied = applied, verified = true, exit_code = 0, steps = steps }
+end
+
+local function read_register(a)
+	local i = iface_ok(a and a.iface)
+	if not i or not IWPRIV then return { ok = false, error = "iface 参数非法或缺少 iwpriv", exit_code = 127 } end
+	local c, o = sh(IWPRIV .. " " .. q(i) .. " show")
+	if c ~= 0 and o:lower():find("usage", 1, true) then c = 0 end
+	return { ok = c == 0, iface = i, output = o, read_only = true, exit_code = c }
+end
+
+local function parse_iwinfo(i)
+	local c, o = sh(IWINFO .. " " .. q(i) .. " info")
+	if c ~= 0 then return { ok = false, exit_code = c, error = "iwinfo 查询失败" } end
+	return {
+		ok = true, iface = i, tool = "iwinfo",
+		channel = tonumber(o:match("Channel%s*:%s*(%d+)") or nil),
+		tx_power = tonumber((o:match("Tx%-?Power%s*:%s*(%-?%d+)") or o:match("Tx Power%s*:%s*(%-?%d+)")) or nil),
+		output = o,
+	}
+end
+
+local function temperature(a)
+	local i = iface_ok(a and a.iface) or first_iface()
+	if not i or not IWPRIV then return { ok = false, error = "缺少可用接口或 iwpriv" } end
+	local c, o = sh(IWPRIV .. " " .. q(i) .. " get_temperature")
+	local v = o:match("[Tt]emperature[^%d%-]*([%-]?%d+%.?%d*)") or o:match("([%-]?%d+%.?%d*)")
+	return { ok = c == 0 and v ~= nil, iface = i, value = v and tonumber(v), unit = "°C", exit_code = c, output = o }
+end
+
+local function channel(a)
+	local i = iface_ok(a and a.iface) or first_iface()
+	if not i or not IWINFO then return { ok = false, error = "缺少可用接口或 iwinfo" } end
+	return parse_iwinfo(i)
+end
+
+local function power(a)
+	local i = iface_ok(a and a.iface) or first_iface()
+	if not i or not IWINFO then return { ok = false, error = "缺少可用接口或 iwinfo" } end
+	return parse_iwinfo(i)
+end
+
+local function diagnostics()
+	local steps, i = {}, first_iface()
+	local function add(name, cmd, expect)
+		local c, o = sh(cmd)
+		steps[#steps + 1] = { name = name, command = cmd, exit_code = c, ok = c == (expect or 0), output = redact(o:sub(1, 2000)) }
+	end
+	if UCI then
+		add("uci show wireless", UCI .. " show wireless")
+		add("uci changes wireless", UCI .. " changes wireless")
+	end
+	if i then
+		if IWPRIV then add("iwpriv 私有 ioctl 列表", IWPRIV .. " " .. q(i)) end
+		if IWINFO then add("iwinfo " .. i .. " info", IWINFO .. " " .. q(i) .. " info") end
+	end
+	for _, svc in ipairs({ "wapp", "mapd", "1905d", "bs20" }) do
+		local init = "/etc/init.d/" .. svc
+		if fs.access(init, "x") then add("服务状态 " .. svc, init .. " status 2>/dev/null || true", 0) end
+	end
+	if MTWIFI_CFG then add("mtwifi_cfg 二进制探测", MTWIFI_CFG .. " 2>&1 || true", 0) end
+	local mapcfg = {}
+	for _, p in ipairs({ "/etc/map/mapd_cfg", "/etc/map/1905d.cfg" }) do
+		local h = io.open(p, "r")
+		if h then
+			local t = h:read("*a") or ""; h:close()
+			mapcfg[#mapcfg + 1] = { path = p, fields = #t, redacted = true }
+			steps[#steps + 1] = { name = "MAP 配置 " .. p, exit_code = 0, ok = true, output = redact(t:sub(1, 1500)) }
+		end
+	end
+	return { ok = true, redacted = true, iface = i, collected = os.date("%Y-%m-%dT%H:%M:%S"), steps = steps, map_files = mapcfg, probes = runtime_probes() }
+end
+
+local methods = {
+	capabilities = {}, apply = { device = "", iface = "", values = {}, apply = false },
+	read_register = { iface = "" }, diagnostics = {},
+	temperature = { iface = "" }, channel = { iface = "" }, power = { iface = "" },
+}
+local function dispatch(m, a)
+	if m == "capabilities" then return capabilities() end
+	if m == "apply" then return apply(a) end
+	if m == "read_register" then return read_register(a) end
+	if m == "diagnostics" then return diagnostics() end
+	if m == "temperature" then return temperature(a) end
+	if m == "channel" then return channel(a) end
+	if m == "power" then return power(a) end
+	return { ok = false, error = "unknown method" }
+end
+-- rpcd exec plugin contract (openwrt-24.10 rpcd plugin.c):
+--   <script> list            -> print JSON method signatures
+--   <script> call <method>   -> JSON args arrive on stdin; print one JSON object
+-- manual testing: <script> <method> '<json>' (args via argv instead)
+local cmd = arg[1]
+if not cmd or cmd == "list" then
+	io.write(json.encode(methods) .. "\n")
+else
+	local m, argjson
+	if cmd == "call" then
+		m = arg[2]
+		argjson = io.read("*a") or ""
+		if argjson == "" then argjson = arg[3] end
+	else
+		m, argjson = cmd, arg[2]
+	end
+	local a = {}
+	if argjson and argjson ~= "" then
+		local ok, v = pcall(json.decode, argjson)
+		if ok and type(v) == "table" then a = v end
+	end
+	local ok, r = pcall(dispatch, m, a)
+	io.write(json.encode(ok and r or { ok = false, error = tostring(r) }) .. "\n")
+end

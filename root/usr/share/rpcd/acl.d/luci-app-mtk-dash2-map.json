@@ -1,0 +1,15 @@
+{
+  "luci-app-mtk-dash2-map": {
+    "description": "MTK MAP EasyMesh runtime",
+    "read": {
+      "ubus": {
+        "map-easymesh": ["status", "capabilities", "config", "topology"]
+      }
+    },
+    "write": {
+      "ubus": {
+        "map-easymesh": ["set_role", "set_backhaul", "set_policy", "set_field", "reload"]
+      }
+    }
+  }
+}

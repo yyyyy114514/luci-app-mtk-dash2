@@ -1,0 +1,508 @@
+#!/usr/bin/env lua
+-- MTK MAP (EasyMesh) backend for luci-app-mtk-dash2
+-- Writes only whitelisted keys in /etc/map/mapd_cfg and /etc/map/1905d.cfg.
+-- wappctrl is used read-only (get map_devices / bh_link_list) for topology.
+local json = require "luci.jsonc"
+local fs = require "nixio.fs"
+
+local MAP_DIR = "/etc/map"
+local SERVICES = { "mapd", "wapp", "bs20" }
+local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }
+local SENSITIVE = { "key", "pass", "secret", "psk", "password", "cred", "alid" }
+local DIRTY = "[%z\1-\8\11\12\14-\31\127]"
+
+-- Field specs verified against mtwifi-cfg wapp/mapd_cfg and wapp/1905d.cfg
+-- (padavanonly/immortalwrt-mt798x-6.6, openwrt-24.10-6.6 branch).
+local FIELDS = {
+	role = {
+		file = "mapd_cfg", key = "DeviceRole", label = "设备角色",
+		type = "enum", map = { agent = "0", controller = "1", both = "2", ["0"] = "0", ["1"] = "1", ["2"] = "2" },
+		labels = { ["0"] = "Agent", ["1"] = "Controller", ["2"] = "Controller+Agent" },
+	},
+	backhaul = {
+		file = "1905d.cfg", key = "bh_type", label = "回程类型",
+		type = "enum", map = { eth = "eth", ethernet = "eth", wifi = "wifi", wireless = "wifi" },
+		labels = { eth = "以太网优先", wifi = "无线回程" },
+	},
+	steer = {
+		file = "mapd_cfg", key = "SteerEnable", label = "频段引导 (Steering)",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	auto_bh = {
+		file = "mapd_cfg", key = "AutoBHSwitching", label = "自动回程切换",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	ch_plan = {
+		file = "mapd_cfg", key = "ChPlanningEnable", label = "信道规划",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	central_steer = {
+		file = "mapd_cfg", key = "CentralizedSteering", label = "集中式引导",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	dhcp_ctl = {
+		file = "mapd_cfg", key = "DhcpCtl", label = "DHCP 控制",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	non_map_ap = {
+		file = "mapd_cfg", key = "NonMAPAPEnable", label = "非 MAP AP 兼容",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	quick_ch = {
+		file = "mapd_cfg", key = "MAP_QuickChChange", label = "快速信道切换",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	netopt = {
+		file = "mapd_cfg", key = "NetworkOptimizationEnabled", label = "网络优化",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	ap_steer_rssi = {
+		file = "mapd_cfg", key = "APSteerRssiTh", label = "AP 引导 RSSI 阈值",
+		type = "int", min = -100, max = 0,
+	},
+	force_roam_rssi = {
+		file = "mapd_cfg", key = "force_roam_rssi_th", label = "强制漫游 RSSI 阈值",
+		type = "int", min = -100, max = 0,
+	},
+	scan_th_2g = {
+		file = "mapd_cfg", key = "ScanThreshold2g", label = "2G 扫描阈值",
+		type = "int", min = -100, max = 0,
+	},
+	scan_th_5g = {
+		file = "mapd_cfg", key = "ScanThreshold5g", label = "5G 扫描阈值",
+		type = "int", min = -100, max = 0,
+	},
+	scan_th_6g = {
+		file = "mapd_cfg", key = "ScanThreshold6g", label = "6G 扫描阈值",
+		type = "int", min = -100, max = 0,
+	},
+	metric_intv = {
+		file = "mapd_cfg", key = "MetricRepIntv", label = "度量上报间隔 (s)",
+		type = "int", min = 1, max = 3600,
+	},
+	bh_steer_timeout = {
+		file = "mapd_cfg", key = "BHSteerTimeout", label = "回程引导超时 (s)",
+		type = "int", min = 1, max = 3600,
+	},
+	pref_ch_2g = {
+		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel2G", label = "首选信道 2G",
+		type = "int", min = 1, max = 14,
+	},
+	pref_ch_5g = {
+		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel5G", label = "首选信道 5G",
+		type = "int", min = 36, max = 177,
+	},
+	pref_ch_5gh = {
+		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel5GH", label = "首选信道 5G-高",
+		type = "int", min = 100, max = 177,
+	},
+}
+
+local function bin(name)
+	for _, d in ipairs(BIN_DIRS) do
+		local p = d .. "/" .. name
+		if fs.access(p, "x") then return p end
+	end
+end
+
+local function read(path)
+	local f = io.open(path, "rb")
+	if not f then return nil end
+	local x = f:read("*a") or ""
+	f:close()
+	return x
+end
+
+local function q(s)
+	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function sh(cmd)
+	local tmp = os.tmpname()
+	local ok, c = os.execute(cmd .. " > " .. q(tmp) .. " 2>&1")
+	local out = ""
+	local f = io.open(tmp, "rb")
+	if f then out = f:read("*a") or ""; f:close() end
+	os.remove(tmp)
+	local code = 1
+	if ok == true then code = 0
+	elseif type(ok) == "number" then
+		if ok == 0 then code = 0
+		elseif ok % 256 == 0 then code = math.floor(ok / 256)
+		else code = 128 + (ok % 256) end
+	elseif type(c) == "number" then
+		if c % 256 == 0 then code = math.floor(c / 256)
+		else code = 128 + (c % 256) end
+	end
+	return code, out
+end
+
+local function clean(s)
+	return tostring(s or ""):gsub(DIRTY, " "):sub(1, 4000)
+end
+
+local function sensitive(k)
+	local lk = tostring(k or ""):lower()
+	for _, w in ipairs(SENSITIVE) do
+		if lk:find(w, 1, true) then return true end
+	end
+	return false
+end
+
+local function stripq(s)
+	local a = s:match('^"(.*)"$')
+	if not a then a = s:match("^'(.*)'$") end
+	if not a then a = s end
+	return a:gsub("%s+$", "")
+end
+
+local function write_atomic(path, content)
+	local tmp = path .. ".mtk-tmp"
+	local f = io.open(tmp, "wb")
+	if not f then return false end
+	f:write(content)
+	f:close()
+	local mode = fs.stat(path, "mode")
+	if mode then pcall(fs.chmod, tmp, mode) end
+	return os.rename(tmp, path)
+end
+
+local function parse_file(text)
+	if type(text) ~= "string" then return {} end
+	local out = {}
+	for line in text:gmatch("[^\r\n]+") do
+		local key, value = line:match("^%s*([%w_.-]+)%s*=%s*(.-)%s*$")
+		if key then
+			out[#out + 1] = { raw = line, key = key, value = value, kind = "kv" }
+		else
+			out[#out + 1] = { raw = line, kind = "other" }
+		end
+	end
+	return out
+end
+
+local function file_text(name)
+	local p = MAP_DIR .. "/" .. name
+	local t = read(p)
+	if not t then return nil end
+	if t:find("\r") then return nil, "CRLF" end
+	return t
+end
+
+local function kv_get(name, key)
+	local t = file_text(name)
+	if not t then return nil end
+	for _, ln in ipairs(parse_file(t)) do
+		if ln.kind == "kv" and ln.key:lower() == key:lower() then
+			return stripq(ln.value)
+		end
+	end
+end
+
+local function first_wifi_iface()
+	local nixio = require "nixio"
+	for _, n in ipairs({ "ra0", "rai0", "rax0", "ra1" }) do
+		if fs.access("/sys/class/net/" .. n) then return n end
+	end
+	return nil
+end
+
+-- read-only wappctrl query
+local function wappctrl_get(param)
+	local wc = bin("wappctrl")
+	if not wc then return nil, "missing wappctrl" end
+	local iface = first_wifi_iface()
+	if not iface then return nil, "no wifi iface" end
+	local code, out = sh(q(wc) .. " " .. q(iface) .. " get " .. q(param))
+	if code ~= 0 then return nil, out end
+	return out, nil
+end
+
+local function parse_topology(out)
+	local nodes = {}
+	if type(out) ~= "string" then return nodes end
+	for line in out:gmatch("[^\r\n]+") do
+		local mac = line:match("([%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x])")
+		if mac then
+			local role = line:match("[Rr]ole%s*[:=]%s*(%w+)") or "unknown"
+			local existing = false
+			for _, n in ipairs(nodes) do
+				if n.mac == mac:lower() then existing = true break end
+			end
+			if not existing then
+				nodes[#nodes + 1] = { mac = mac:lower(), role = role, raw = clean(line:sub(1, 200)) }
+			end
+		end
+	end
+	return nodes
+end
+
+local function topology()
+	local out, err = wappctrl_get("map_devices")
+	local nodes = {}
+	if out then nodes = parse_topology(out) end
+	local bh_out = wappctrl_get("bh_link_list")
+	local links = {}
+	if type(bh_out) == "string" then
+		for line in bh_out:gmatch("[^\r\n]+") do
+			if line:match("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") then
+				links[#links + 1] = clean(line:sub(1, 200))
+			end
+		end
+	end
+	return {
+		ok = true,
+		available = out ~= nil,
+		reason = out == nil and (err or "wappctrl 查询不可用") or nil,
+		nodes = nodes,
+		backhaul_links = links,
+	}
+end
+
+local function config()
+	local out = {}
+	for _, name in ipairs({ "mapd_cfg", "1905d.cfg" }) do
+		local path = MAP_DIR .. "/" .. name
+		local text = read(path)
+		local e = { name = name, path = path, present = text ~= nil, fields = {} }
+		for _, ln in ipairs(parse_file(text or "")) do
+			if ln.kind == "kv" and not sensitive(ln.key) then
+				e.fields[#e.fields + 1] = { key = ln.key, value = stripq(ln.value):sub(1, 160) }
+			end
+		end
+		out[#out + 1] = e
+	end
+	return out
+end
+
+local function service_states()
+	local states = {}
+	for _, s in ipairs(SERVICES) do
+		local initd = "/etc/init.d/" .. s
+		if fs.access(initd, "x") then
+			local code = sh(initd .. " running")
+			states[s] = { status = code == 0 and "running" or "stopped", exit_code = code }
+		else
+			states[s] = { status = "missing" }
+		end
+	end
+	return states
+end
+
+local function reload_services()
+	local present = {}
+	for _, s in ipairs(SERVICES) do
+		if fs.access("/etc/init.d/" .. s, "x") then present[#present + 1] = s end
+	end
+	if #present == 0 then return false, { note = "未检测到 MAP 服务" } end
+	local results, all_ok = {}, true
+	for _, s in ipairs(present) do
+		local code, out = sh("/etc/init.d/" .. s .. " restart")
+		if code ~= 0 then all_ok = false end
+		results[#results + 1] = { service = s, exit_code = code, ok = code == 0, output = clean(out) }
+	end
+	return all_ok, results
+end
+
+local function field_state(id)
+	local f = FIELDS[id]
+	if not f then return nil end
+	local t = file_text(f.file)
+	if not t then return { id = id, label = f.label, file = f.file, key = f.key, present = false } end
+	local cur
+	for _, ln in ipairs(parse_file(t)) do
+		if ln.kind == "kv" and ln.key:lower() == f.key:lower() then
+			cur = ln
+			break
+		end
+	end
+	return {
+		id = id, label = f.label, file = f.file, key = f.key,
+		present = cur ~= nil, value = cur and stripq(cur.value) or nil,
+	}
+end
+
+local function status()
+	local states = {}
+	for id in pairs(FIELDS) do states[id] = field_state(id) end
+	local role = states.role and states.role.value
+	local map_root = kv_get("1905d.cfg", "map_root")
+	local map_agent = kv_get("1905d.cfg", "map_agent")
+	local topo = topology()
+	return {
+		ok = true,
+		role = role and (FIELDS.role.labels[role] or role) or "unknown",
+		role_raw = role,
+		map_root = map_root,
+		map_agent = map_agent,
+		map_ver = kv_get("1905d.cfg", "map_ver"),
+		fields = states,
+		nodes = topo.nodes,
+		backhaul_links = topo.backhaul_links,
+		topology_available = topo.available,
+		services = service_states(),
+		config = config(),
+	}
+end
+
+local function capabilities()
+	local writable = fs.access(MAP_DIR, "w")
+	local writable_fields, missing = {}, {}
+	for id, f in pairs(FIELDS) do
+		local st = field_state(id)
+		local w = writable and st and st.present
+		if w then writable_fields[id] = true else missing[#missing + 1] = id end
+	end
+	local wc = bin("wappctrl")
+	return {
+		ok = true,
+		wappctrl = wc ~= nil,
+		config_present = fs.access(MAP_DIR .. "/mapd_cfg") ~= nil or fs.access(MAP_DIR .. "/1905d.cfg") ~= nil,
+		writable = writable,
+		writable_fields = writable_fields,
+		missing_fields = missing,
+		services = service_states(),
+		note = "仅写入已探测到的白名单配置键（mapd_cfg / 1905d.cfg），写入前快照、失败自动回滚；拓扑查询只读使用 wappctrl get map_devices。",
+	}
+end
+
+local function set_field(args)
+	args = args or {}
+	local id = args.field
+	local f = id and FIELDS[id]
+	if not f then return { ok = false, error = "未知字段: " .. tostring(id) } end
+	local path = MAP_DIR .. "/" .. f.file
+	local text = read(path)
+	if not text then return { ok = false, error = "配置文件缺失: " .. path } end
+	if text:find("\r") then return { ok = false, error = "配置文件含 CRLF 换行，拒绝改写" } end
+	local cur_line
+	for _, ln in ipairs(parse_file(text)) do
+		if ln.kind == "kv" and ln.key:lower() == f.key:lower() then cur_line = ln break end
+	end
+	if not cur_line then return { ok = false, error = "配置中不存在键 " .. f.key .. "（固件版本可能不同）" } end
+	local cur = stripq(cur_line.value)
+	local nv
+	if f.type == "enum" then
+		local raw = args.value
+		if type(raw) ~= "string" then return { ok = false, error = "缺少 value 参数" } end
+		nv = f.map[raw] or f.map[raw:lower()]
+		if not nv then
+			local allowed = {}
+			for k in pairs(f.map) do allowed[#allowed + 1] = k end
+			table.sort(allowed)
+			return { ok = false, error = "值不在白名单: " .. raw, allowed = allowed }
+		end
+	elseif f.type == "int" then
+		local n = tonumber(args.value)
+		if not n or n % 1 ~= 0 or n < f.min or n > f.max then
+			return { ok = false, error = ("数值需为 %d-%d 之间的整数"):format(f.min, f.max) }
+		end
+		nv = tostring(n)
+	else
+		return { ok = false, error = "不支持的字段类型" }
+	end
+	if cur == nv then return { ok = false, error = "值未变化（当前: " .. cur .. "）" } end
+	-- keep original quoting style (mapd files are unquoted key=value)
+	local openq, closeq = "", ""
+	if cur_line.value:sub(1, 1) == '"' then openq, closeq = '"', '"' end
+	if cur_line.value:sub(1, 1) == "'" then openq, closeq = "'", "'" end
+	local snap = path .. ".mtk-rollback"
+	local sf = io.open(snap, "wb")
+	if not sf then return { ok = false, error = "无法创建回滚快照" } end
+	sf:write(text)
+	sf:close()
+	local out_lines = {}
+	for _, ln in ipairs(parse_file(text)) do
+		if ln.kind == "kv" and ln.key:lower() == f.key:lower() then
+			out_lines[#out_lines + 1] = ln.key .. "=" .. openq .. nv .. closeq
+		else
+			out_lines[#out_lines + 1] = ln.raw
+		end
+	end
+	local content = table.concat(out_lines, "\n") .. "\n"
+	local function rollback()
+		local c = read(snap)
+		if c then write_atomic(path, c) end
+		os.remove(snap)
+	end
+	if not write_atomic(path, content) then
+		rollback()
+		return { ok = false, error = "配置写入失败，已回滚", rollback = true }
+	end
+	if (read(path) or "") ~= content then
+		rollback()
+		return { ok = false, error = "配置写入校验失败，已回滚", rollback = true }
+	end
+	if args.reload == true then
+		local okr, results = reload_services()
+		if not okr then
+			rollback()
+			return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
+		end
+		os.remove(snap)
+		return { ok = true, field = id, key = f.key, old = cur, value = nv, file = path, reloaded = true, results = results }
+	end
+	os.remove(snap)
+	return { ok = true, field = id, key = f.key, old = cur, value = nv, file = path }
+end
+
+-- compatibility wrappers (map.js legacy calls)
+local function set_role(a) return set_field({ field = "role", value = a and a.value, reload = a and a.reload }) end
+local function set_backhaul(a) return set_field({ field = "backhaul", value = a and a.value, reload = a and a.reload }) end
+local function set_policy(a) return set_field({ field = "steer", value = a and a.value, reload = a and a.reload }) end
+
+local function reload()
+	local okr, results = reload_services()
+	return { ok = okr, results = results }
+end
+
+local methods = {
+	status = {},
+	capabilities = {},
+	config = {},
+	topology = {},
+	reload = {},
+	set_field = { field = "", value = "", reload = false },
+	set_role = { value = "", reload = false },
+	set_backhaul = { value = "", reload = false },
+	set_policy = { value = "", reload = false },
+}
+
+-- rpcd exec plugin contract (openwrt-24.10 rpcd plugin.c):
+--   <script> list            -> print JSON method signatures
+--   <script> call <method>   -> JSON args arrive on stdin; print one JSON object
+-- manual testing: <script> <method> '<json>' (args via argv instead)
+local function dispatch(m, a)
+	if m == "status" then return status() end
+	if m == "capabilities" then return capabilities() end
+	if m == "config" then return { ok = true, config = config() } end
+	if m == "topology" then return topology() end
+	if m == "reload" then return reload() end
+	if m == "set_field" then return set_field(a) end
+	if m == "set_role" then return set_role(a) end
+	if m == "set_backhaul" then return set_backhaul(a) end
+	if m == "set_policy" then return set_policy(a) end
+	return { ok = false, error = "unknown method" }
+end
+local cmd = arg[1]
+if not cmd or cmd == "list" then
+	io.write(json.encode(methods))
+	io.write("\n")
+else
+	local m, argjson
+	if cmd == "call" then
+		m = arg[2]
+		argjson = io.read("*a") or ""
+		if argjson == "" then argjson = arg[3] end
+	else
+		m, argjson = cmd, arg[2]
+	end
+	local a = {}
+	if argjson and argjson ~= "" then
+		local ok, v = pcall(json.decode, argjson)
+		if ok and type(v) == "table" then a = v end
+	end
+	local ok, res = pcall(dispatch, m, a)
+	io.write(json.encode(ok and res or { ok = false, error = tostring(res) }))
+	io.write("\n")
+end

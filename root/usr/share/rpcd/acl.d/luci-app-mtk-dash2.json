@@ -3,12 +3,14 @@
     "description": "MTK Dash2 management",
     "read": {
       "ubus": {
-        "mtk-dash2": ["status", "capabilities", "topology", "diagnostics", "list_backups", "restore_preview"]
+        "mtk-dash2": ["status", "capabilities", "topology", "diagnostics", "get_wireless_config", "list_backups", "restore_preview"],
+        "mtk-dash2-advanced": ["capabilities", "diagnostics", "read_register", "temperature", "channel", "power"]
       }
     },
     "write": {
       "ubus": {
-        "mtk-dash2": ["set_radio", "scan", "apply_wireless", "apply_map", "backup", "restore"]
+        "mtk-dash2": ["set_radio", "update_device", "update_vif", "add_vif", "delete_vif", "scan", "apply_wireless", "apply_map", "backup", "restore", "rollback"],
+        "mtk-dash2-advanced": ["apply"]
       }
     }
   }

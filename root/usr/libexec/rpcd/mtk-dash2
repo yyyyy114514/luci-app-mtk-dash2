@@ -103,13 +103,19 @@ local function redact_table(t)
 	return r
 end
 
-local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }
+local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec", "/usr/share" }
 local function find_bin(name)
 	for _, d in ipairs(BIN_DIRS) do
 		local p = d .. "/" .. name
 		if fs.access(p, "x") then return p end
 	end
 	return nil
+end
+
+local function safe_dir(path)
+	local it = fs.dir(path)
+	if not it then return function() return nil end end
+	return it
 end
 
 local UCI_BIN = find_bin("uci")
@@ -119,6 +125,7 @@ local TAR_BIN = find_bin("tar")
 local SHA_BIN = find_bin("sha256sum")
 local LOGREAD_BIN = find_bin("logread")
 local IWPRIV_BIN = find_bin("iwpriv")
+local MTWIFI_CFG_BIN = find_bin("mtwifi_cfg")
 
 local function q(s)
 	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
@@ -126,24 +133,24 @@ end
 
 local function sh(cmd)
 	local tmp = os.tmpname()
-	local ok, c = os.execute(cmd .. " >" .. q(tmp) .. " 2>&1")
+	local r = os.execute(cmd .. " >" .. q(tmp) .. " 2>&1")
 	local out = ""
 	local f = io.open(tmp, "rb")
 	if f then out = f:read("*a") or ""; f:close() end
 	os.remove(tmp)
-	local code = 0
-	if type(ok) == "number" then code = ok
-	elseif ok == true then code = 0
-	elseif ok == false then code = 1
-	else code = math.floor((c or 256) / 256)
+	if r == true then return 0, out end
+	if type(r) == "number" then
+		if r == 0 then return 0, out end
+		if r % 256 == 0 then return math.floor(r / 256), out end
+		return 128 + (r % 256), out
 	end
-	return code, out
+	return 1, out
 end
 
 local function rm_rf(p)
 	local function rec(x)
 		if fs.stat(x, "type") ~= "dir" then return end
-		for n in fs.dir(x) or {} do
+		for n in safe_dir(x) do
 			if n ~= "." and n ~= ".." then
 				local c = x .. "/" .. n
 				if fs.stat(c, "type") == "dir" then rec(c) else os.remove(c) end
@@ -192,9 +199,24 @@ local function ubus_call(method, args)
 	return result
 end
 
+local function ubus_object_call(object, method, args)
+	local ok, u = pcall(function() return require("ubus").connect() end)
+	if not ok or not u then return nil, "ubus unavailable" end
+	local okc, result = pcall(function() return u:call(object, method, args or {}) end)
+	u:close()
+	if not okc then return nil, result end
+	return result
+end
+
+local function uci_get_wireless_values()
+	local r = ubus_object_call("uci", "get", { config = "wireless" })
+	if type(r) == "table" and type(r.values) == "table" then return r.values end
+	return nil
+end
+
 local function wireless_iface_names()
 	local out = {}
-	for n in fs.dir("/sys/class/net") or {} do
+	for n in safe_dir("/sys/class/net") do
 		if n:match("^ra%d") or n:match("^rai%d") or n:match("^apcli") then
 			out[#out + 1] = n
 		end
@@ -271,28 +293,6 @@ local function parse_scan(out)
 	return cells
 end
 
-local ADVANCED_FIELDS = {
-	{ id = "hwmode", label = "Mode", category = "rf", type = "enum", values = { "11a", "11g", "11na", "11ac", "11ax" }, source = "mtwifi-cfg hwmode", verified = false, reload = "reload", note = "主无线模式，与 dat 生成关联" },
-	{ id = "htmode", label = "Bandwidth", category = "rf", type = "enum", values = { "HT20", "HT40", "VHT80", "HE80" }, source = "mtwifi-cfg htmode", verified = false, reload = "reload", note = "MT7981 建议最高 80MHz，160MHz 需实机确认" },
-	{ id = "channel", label = "Channel", category = "rf", type = "integer", min = 0, max = 196, default = "auto", source = "wireless UCI channel", verified = false, reload = "reload" },
-	{ id = "country", label = "Country", category = "rf", type = "string", source = "wireless UCI country", verified = false, reload = "reload" },
-	{ id = "txpower", label = "TX Power", category = "power", type = "integer", min = 0, max = 30, source = "wireless UCI txpower", verified = false, reload = "reload", note = "dBm，0 为驱动默认" },
-	{ id = "bssid_num", label = "BSSID Number", category = "mbasic", type = "integer", min = 1, max = 16, source = "MBSSID SSIDn/WPAPSKn 索引", verified = false, reload = "restart", note = "分号 token 与 0/1 索引集中处理" },
-	{ id = "dtim_period", label = "DTIM Period", category = "misc", type = "integer", min = 1, max = 255, default = 1, source = "dat dtim", verified = false, reload = "reload" },
-	{ id = "beacon_int", label = "Beacon Interval", category = "misc", type = "integer", min = 20, max = 1000, default = 100, source = "dat beacon", verified = false, reload = "reload" },
-	{ id = "wmm_enable", label = "WMM", category = "wmm", type = "boolean", default = true, source = "wireless UCI / dat", verified = false, reload = "reload" },
-	{ id = "mu_mimo", label = "MU-MIMO", category = "mu", type = "boolean", default = true, source = "dat MuMimo", verified = false, reload = "reload" },
-	{ id = "ofdma", label = "OFDMA", category = "mu", type = "boolean", default = true, source = "dat Ofdma", verified = false, reload = "reload" },
-	{ id = "twt_enable", label = "TWT", category = "twt", type = "boolean", default = false, source = "dat TwtEnable", verified = false, reload = "reload" },
-	{ id = "ieee80211k", label = "802.11k", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
-	{ id = "ieee80211v", label = "802.11v", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
-	{ id = "ieee80211r", label = "802.11r", category = "roam", type = "boolean", default = false, source = "wireless UCI", verified = false, reload = "reload" },
-	{ id = "band_steering", label = "Band Steering", category = "roam", type = "boolean", default = false, source = "dat BandSteering", verified = false, reload = "restart", note = "依赖 WAPP，参数格式需实机确认" },
-	{ id = "macfilter", label = "MAC Filter", category = "acl", type = "enum", values = { "disable", "allow", "deny" }, source = "wireless UCI macfilter", verified = false, reload = "reload" },
-	{ id = "maclist", label = "MAC List", category = "acl", type = "string", source = "wireless UCI maclist", verified = false, reload = "reload" },
-	{ id = "hwnat", label = "HW NAT", category = "chip", type = "boolean", default = true, source = "kernel/switch", verified = false, reload = "restart", note = "整机级别，变更影响全局" },
-}
-
 local MAP_COMPONENTS = { "wappctrl", "wapp", "bs20" }
 local MAP_FILES = { "1905d.cfg", "mapd_cfg" }
 local MAP_SERVICES = { "mapd", "wapp", "bs20" }
@@ -329,7 +329,7 @@ end
 local function running_processes()
 	local names = { "wapp", "bs20", "mapd", "1905" }
 	local found, seen = {}, {}
-	for pid in fs.dir("/proc") or {} do
+	for pid in safe_dir("/proc") do
 		if pid:match("^%d+$") and not seen[pid] then
 			local f = io.open("/proc/" .. pid .. "/comm", "r")
 			if f then
@@ -381,6 +381,10 @@ local function runtime_probes()
 		register = { status = "unavailable", reason = "missing_binary" },
 		spectrum = { status = "unavailable", reason = "missing_binary" },
 		wappctrl = { status = "unavailable", reason = "missing_binary" },
+		mtwifi_cfg = { status = "unavailable", reason = "missing_binary" },
+		temperature = { status = "unavailable", reason = "missing_binary" },
+		channel = { status = "unavailable", reason = "missing_binary" },
+		power = { status = "unavailable", reason = "missing_binary" },
 	}
 	if IWPRIV_BIN and iface then
 		probes.register = probe_first({
@@ -404,6 +408,33 @@ local function runtime_probes()
 		probes.spectrum = probe_first({
 			{ bin = IWPRIV_BIN, args = q(iface) .. " --all", tool = "iwpriv", match = function(out)
 				return out:lower():find("spectrum", 1, true) ~= nil
+			end },
+		})
+	end
+	if MTWIFI_CFG_BIN then
+		probes.mtwifi_cfg = probe_first({
+			{ bin = MTWIFI_CFG_BIN, args = "--help", tool = "mtwifi-cfg", match = function(out)
+				local low = out:lower()
+				return low:find("mtwifi", 1, true) ~= nil or low:find("channel", 1, true) ~= nil or low:find("temperature", 1, true) ~= nil or low:find("apply", 1, true) ~= nil
+			end },
+		})
+	end
+	if IWPRIV_BIN and iface then
+		probes.temperature = probe_first({
+			{ bin = IWPRIV_BIN, args = q(iface) .. " get_temperature", tool = "iwpriv", match = function(out)
+				return out:match("[Tt]emperature[^%d%-]*([%-]?%d+)") ~= nil
+			end },
+		})
+	end
+	if IWINFO_BIN and iface then
+		probes.channel = probe_first({
+			{ bin = IWINFO_BIN, args = q(iface) .. " info", tool = "iwinfo", match = function(out)
+				return out:match("Channel:%s*([%d]+)") ~= nil
+			end },
+		})
+		probes.power = probe_first({
+			{ bin = IWINFO_BIN, args = q(iface) .. " info", tool = "iwinfo", match = function(out)
+				return out:match("Tx%-Power:%s*([%d]+)") ~= nil
 			end },
 		})
 	end
@@ -466,11 +497,22 @@ local function status()
 					}
 					ri.ifaces[#ri.ifaces + 1] = fi
 					if IWINFO_BIN and f.ifname and not f.disabled and (f.mode == "ap") then
-						local c, o = sh(IWINFO_BIN .. " " .. q(f.ifname) .. " assoclist")
-						if c == 0 then
-							local list = parse_assoclist(o)
+						local pok, pc, po = pcall(sh, IWINFO_BIN .. " " .. q(f.ifname) .. " assoclist")
+						if pok and pc == 0 then
+							local list = parse_assoclist(po or "")
 							stations[f.ifname] = list
 							station_count = station_count + #list
+						end
+					end
+					if IWINFO_BIN and f.ifname and not f.disabled and f.mode == "sta" then
+						local pok, pc, po = pcall(sh, IWINFO_BIN .. " " .. q(f.ifname) .. " info")
+						if pok and pc == 0 then
+							fi.upstream = {
+								 ssid = clean_text(po:match("ESSID%s*:%s*(.-)%s*\n") or ""),
+							 bssid = po:match("Access Point%s*:%s*([%x:]+)"),
+							 signal = tonumber(po:match("Signal%s*:%s*(-?%d+)") or nil),
+							 channel = tonumber(po:match("Channel%s*:%s*(%d+)") or nil),
+							}
 						end
 					end
 				end
@@ -488,86 +530,6 @@ local function status()
 		mtwifi = fs.access("/sys/module/mt_wifi"),
 		wireless_ifaces = wireless_iface_names(),
 	}
-end
-
-local ADV_FIELD_PROBES = {
-	hwmode = { uci = { "hwmode" } },
-	htmode = { uci = { "htmode" } },
-	channel = { uci = { "channel" } },
-	country = { uci = { "country" } },
-	txpower = { uci = { "txpower" } },
-	bssid_num = { multi_ssid = true },
-	dtim_period = { dat = { "Dtim", "dtim", "dtim_period" } },
-	beacon_int = { dat = { "Beacon", "beacon", "beacon_interval" } },
-	wmm_enable = { uci = { "wmm" }, dat = { "Wmm", "wmm" } },
-	mu_mimo = { uci = { "mu_mimo", "mumimo" }, dat = { "MuMimo", "mumimo" } },
-	ofdma = { uci = { "ofdma" }, dat = { "Ofdma", "ofdma" } },
-	twt_enable = { uci = { "twt_enable", "twt" }, dat = { "TwtEnable", "twt" } },
-	ieee80211k = { uci = { "ieee80211k" } },
-	ieee80211v = { uci = { "ieee80211v" } },
-	ieee80211r = { uci = { "ieee80211r" } },
-	band_steering = { uci = { "band_steering" }, dat = { "BandSteering", "bandsteering" } },
-	macfilter = { uci = { "macfilter" } },
-	maclist = { uci = { "maclist" } },
-	hwnat = { uci = { "hwnat" }, dat = { "HwNat", "hwnat" }, module = { "/sys/module/hnat", "/sys/module/mt_hnat", "/sys/module/eth_hnat" } },
-}
-
-local function find_keyword(keys, txt)
-	if type(keys) ~= "table" or type(txt) ~= "string" then return false end
-	for _, kw in ipairs(keys) do
-		if txt:find(kw, 1, true) then return true end
-	end
-	return false
-end
-
-local function probe_advanced_fields()
-	local wireless_txt = ""
-	if UCI_BIN then
-		local c, o = sh(UCI_BIN .. " show wireless")
-		if c == 0 then wireless_txt = o or "" end
-	end
-	local dat_chunks = {}
-	for n in fs.dir("/etc/wireless") or {} do
-		local c = read_file("/etc/wireless/" .. n)
-		if c then dat_chunks[#dat_chunks + 1] = c end
-	end
-	local dat_txt = table.concat(dat_chunks, "\n")
-	local out = {}
-	for _, f in ipairs(ADVANCED_FIELDS) do
-		local spec = ADV_FIELD_PROBES[f.id]
-		local verified = false
-		if spec then
-			if spec.multi_ssid then
-				local n = 0
-				for _ in wireless_txt:gmatch("option%s+ssid%s+") do n = n + 1 end
-				verified = n >= 2
-			else
-				verified = find_keyword(spec.uci, wireless_txt)
-					or find_keyword(spec.dat, dat_txt)
-				if not verified and spec.module then
-					for _, p in ipairs(spec.module) do
-						if fs.access(p) then verified = true break end
-					end
-				end
-			end
-		end
-		local copy = {
-			id = f.id,
-			label = f.label,
-			category = f.category,
-			type = f.type,
-			verified = verified,
-		}
-		if f.values then copy.values = f.values end
-		if f.min then copy.min = f.min end
-		if f.max then copy.max = f.max end
-		if f.default ~= nil then copy.default = f.default end
-		if f.source then copy.source = f.source end
-		if f.reload then copy.reload = f.reload end
-		if f.note then copy.note = f.note end
-		out[#out + 1] = copy
-	end
-	return out
 end
 
 local function capabilities()
@@ -598,8 +560,8 @@ local function capabilities()
 			tar = TAR_BIN ~= nil,
 			sha256 = SHA_BIN ~= nil,
 			logread = LOGREAD_BIN ~= nil,
-			l1util = fs.access("/usr/sbin/l1util") or fs.access("/usr/bin/l1util"),
-			mtwifi_cfg = fs.access("/usr/share/mtwifi-cfg") or fs.access("/usr/bin/mtwifi-cfg") or fs.access("/usr/sbin/mtwifi-cfg"),
+			l1util = find_bin("l1util") ~= nil,
+			mtwifi_cfg = MTWIFI_CFG_BIN ~= nil,
 		},
 		map = {
 			config = map_present,
@@ -611,7 +573,6 @@ local function capabilities()
 		},
 		wireless_writable = fs.access("/etc/config/wireless", "w"),
 		limits = { ap_max = 16, apcli_max = 1 },
-		advanced_fields = probe_advanced_fields(),
 		backend = "mtk-dash2",
 	}
 end
@@ -676,7 +637,7 @@ local function diagnostics()
 	end
 
 	local dat = {}
-	for n in fs.dir("/etc/wireless") or {} do
+	for n in safe_dir("/etc/wireless") do
 		local p = "/etc/wireless/" .. n
 		local st = fs.stat(p, "size") or 0
 		dat[#dat + 1] = { name = n, bytes = st }
@@ -709,33 +670,390 @@ local function diagnostics()
 	return { ok = true, redacted = true, collected = os.date("%Y-%m-%dT%H:%M:%S"), probes = probes, steps = steps }
 end
 
+local ENC_WHITELIST = {
+	"none", "psk", "psk2", "psk-mixed", "psk2+ccmp", "psk2+tkip", "psk2+tkip+ccmp",
+	"psk2+aes", "psk2+tkip+aes", "psk+ccmp", "psk+aes", "psk+tkip", "psk+tkip+ccmp",
+	"psk+tkip+aes", "psk-mixed+ccmp", "psk-mixed+aes", "psk-mixed+tkip",
+	"psk-mixed+tkip+ccmp", "psk-mixed+tkip+aes", "sae", "sae-mixed", "owe",
+}
+local DEVICE_VALUE_FIELDS = {
+	channel = { kind = "string", max = 16, check = function(v) return v == "auto" or v:match("^%d+$") and tonumber(v) >= 0 and tonumber(v) <= 196 end },
+	htmode = { kind = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
+	band = { kind = "enum", values = { "2g", "5g", "6g" } },
+	txpower = { kind = "int", min = 0, max = 30 },
+	country = { kind = "country" },
+	beacon_int = { kind = "int", min = 20, max = 1000 },
+	dtim_period = { kind = "int", min = 1, max = 255 },
+	twt = { kind = "enum", values = { "0", "1" } },
+	mu_beamformer = { kind = "bool" },
+	whnat = { kind = "bool" },
+	dbdc_main = { kind = "bool" },
+	bandsteering = { kind = "bool" },
+}
+local VIF_VALUE_FIELDS = {
+	mode = { kind = "enum", values = { "ap", "sta" } },
+	ssid = { kind = "string", max = 32 },
+	encryption = { kind = "enum", values = ENC_WHITELIST },
+	key = { kind = "psk" },
+	network = { kind = "string", max = 64 },
+	bssid = { kind = "mac" },
+	macaddr = { kind = "mac" },
+	hidden = { kind = "bool" },
+	isolate = { kind = "bool" },
+	wmm = { kind = "bool" },
+	ieee80211k = { kind = "bool" },
+	ieee80211r = { kind = "bool" },
+	macfilter = { kind = "enum", values = { "disable", "allow", "deny" } },
+	maclist = { kind = "maclist" },
+	wpa_group_rekey = { kind = "int", min = 0, max = 86400 },
+	frag = { kind = "int", min = 256, max = 2346 },
+	rts = { kind = "int", min = 1, max = 2347 },
+	kicklow = { kind = "int", min = -100, max = 0 },
+	assocthres = { kind = "int", min = 0, max = 65535 },
+	steeringthresold = { kind = "int", min = -100, max = 0 },
+	mumimo_dl = { kind = "bool" },
+	mumimo_ul = { kind = "bool" },
+	ofdma_dl = { kind = "bool" },
+	ofdma_ul = { kind = "bool" },
+	amsdu = { kind = "bool" },
+	autoba = { kind = "bool" },
+	uapsd = { kind = "bool" },
+}
+
+local function valid_value(spec, value)
+	if type(value) ~= "string" then return nil end
+	value = value:gsub("%s+$", "")
+	if value == "" then return nil end
+	if spec.max and #value > spec.max then return nil end
+	if spec.kind == "enum" then
+		for _, x in ipairs(spec.values) do if x == value then return value end end
+		return nil
+	elseif spec.kind == "int" then
+		local n = tonumber(value)
+		if not n or n % 1 ~= 0 then return nil end
+		if spec.min and n < spec.min then return nil end
+		if spec.max and n > spec.max then return nil end
+		return tostring(n)
+	elseif spec.kind == "bool" then
+		if value == "1" or value == "0" then return value end
+		return nil
+	elseif spec.kind == "country" then
+		if value:match("^%u%u$") or value == "00" or value == "DB" then return value end
+		return nil
+	elseif spec.kind == "mac" then
+		if value:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then return value end
+		return nil
+	elseif spec.kind == "maclist" then
+		local count = 0
+		for mac in value:gmatch("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") do count = count + 1 end
+		if count == 0 or value:gsub("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]", ""):match("%S") then return nil end
+		return value
+	elseif spec.kind == "psk" then
+		if #value >= 8 and #value <= 63 then return value end
+		return nil
+	end
+	if spec.check and not spec.check(value) then return nil end
+	return value
+end
+
+local function get_wireless_config()
+	local devices, ifaces = {}, {}
+	local function add_section(name, typ)
+		local list = typ == "wifi-device" and devices or (typ == "wifi-iface" and ifaces or nil)
+		if not list then return nil end
+		local sec = { name = name, type = typ }
+		list[#list + 1] = sec
+		return sec
+	end
+	local values = uci_get_wireless_values()
+	if values then
+		for name, sec in pairs(values) do
+			if type(sec) == "table" and type(sec[".type"]) == "string" then
+				local s = add_section(name, sec[".type"])
+				if s then
+					for k, v in pairs(sec) do
+						if k:sub(1, 1) ~= "." then
+							if type(v) == "table" then v = table.concat(v, " ") end
+							v = tostring(v)
+							if k == "key" or k == "psk" then
+								if v ~= "" then s.key_set = true end
+							elseif not is_sensitive(k) then
+								s[k] = v
+							end
+						end
+					end
+				end
+			end
+		end
+	else
+		if not UCI_BIN then return { ok = false, error = "缺少 uci 命令且 ubus uci 不可用", exit_code = 127 } end
+		local code, out = sh(UCI_BIN .. " show wireless")
+		if code ~= 0 then return { ok = false, error = "读取 wireless 配置失败", exit_code = code } end
+		for line in out:gmatch("[^\r\n]+") do
+			local secname, value = line:match("^wireless%.([%w_@%[%]%.%-]+)=(.*)$")
+			if secname then
+				local v = value:gsub("^'(.*)'$", "%1")
+				local sname, opt = secname:match("^(.+)%.(%w+)$")
+				if sname then
+					local found = nil
+					for _, l in ipairs({ devices, ifaces }) do
+						for _, s in ipairs(l) do
+							if s.name == sname then found = s break end
+						end
+						if found then break end
+					end
+					if found then
+						if opt == "key" or opt == "psk" then
+							if v ~= "" then found.key_set = true end
+						elseif not is_sensitive(opt) then
+							found[opt] = v
+						end
+					end
+				else
+					add_section(secname, v)
+				end
+			end
+		end
+	end
+	table.sort(devices, function(a, b) return a.name < b.name end)
+	table.sort(ifaces, function(a, b) return (a.device or "") < (b.device or "") end)
+	return { ok = true, devices = devices, ifaces = ifaces }
+end
+
+local function backup_wireless_uci()
+	if not UCI_BIN then return nil, "缺少 uci 命令" end
+	local tmp = os.tmpname()
+	local code = sh(UCI_BIN .. " export wireless >" .. q(tmp) .. " 2>&1")
+	if code ~= 0 then os.remove(tmp); return nil, "导出 wireless 失败" end
+	return tmp, nil
+end
+
+local function restore_wireless_uci(tmp)
+	if not tmp then return end
+	sh(UCI_BIN .. " import <" .. q(tmp))
+	sh(UCI_BIN .. " commit wireless")
+	os.remove(tmp)
+end
+
+local function commit_and_apply(apply, before_verified)
+	local c1 = sh(UCI_BIN .. " commit wireless")
+	if c1 ~= 0 then return { ok = false, error = "uci commit 失败", exit_code = c1 } end
+	local res = { ok = true, written = true, exit_code = 0 }
+	if apply then
+		if not WIFI_BIN then res.error = "已写入 UCI，但缺少 wifi 命令，未应用"; res.applied = false; return res end
+		local c2 = sh(WIFI_BIN .. " reload")
+		res.applied = c2 == 0
+		res.apply_exit_code = c2
+		if not res.applied then res.error = "无线应用失败"; res.rolled_back = false end
+	end
+	if before_verified and not (apply and not res.applied) then
+		local after = status()
+		if after and after.up == false then
+			res.error = "应用后无线状态复核异常"
+		end
+	end
+	return res
+end
+
+local function update_device(args)
+	args = args or {}
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	local device = args.device
+	if type(device) ~= "string" or not device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	if type(args.values) ~= "table" or next(args.values) == nil then return { ok = false, error = "values 参数非法" } end
+	local c0, typ = sh(UCI_BIN .. " get wireless." .. device)
+	if c0 ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c0 } end
+	local rb, err = backup_wireless_uci()
+	if not rb then return { ok = false, error = err } end
+	local changed = {}
+	for k, v in pairs(args.values) do
+		local spec = DEVICE_VALUE_FIELDS[k]
+		local nv = spec and valid_value(spec, v)
+		if not nv then restore_wireless_uci(rb); return { ok = false, error = "字段不在白名单或值非法: " .. tostring(k) } end
+		local c = sh(UCI_BIN .. " set wireless." .. device .. "." .. k .. "=" .. q(nv))
+		if c ~= 0 then restore_wireless_uci(rb); return { ok = false, error = "UCI 写入失败: " .. k, exit_code = c } end
+		changed[k] = nv
+	end
+	local res = commit_and_apply(args.apply == true, true)
+	res.device = device
+	res.changed = changed
+	if res.error then res.rolled_back = false end
+	if res.error then
+		restore_wireless_uci(rb)
+		res.rolled_back = true
+		res.rollback_verified = get_wireless_config().ok
+	end
+	return res
+end
+
+local function update_vif(args)
+	args = args or {}
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	local iface = args.iface
+	if type(iface) ~= "string" or not iface:match("^[%w_@%[%]%.%-]+$") then return { ok = false, error = "iface 参数非法" } end
+	if type(args.values) ~= "table" or next(args.values) == nil then return { ok = false, error = "values 参数非法" } end
+	local c0, typ = sh(UCI_BIN .. " get wireless." .. iface)
+	if c0 ~= 0 or not typ:find("wifi-iface", 1, true) then return { ok = false, error = "iface 不存在或不是 wifi-iface", exit_code = c0 } end
+	local rb, err = backup_wireless_uci()
+	if not rb then return { ok = false, error = err } end
+	local changed = {}
+	local want_enc = args.values.encryption
+	local ec_enc, cur_enc_out = sh(UCI_BIN .. " get wireless." .. iface .. ".encryption")
+	local cur_enc = ec_enc == 0 and cur_enc_out:gsub("%s+$", "") or "none"
+	for k, v in pairs(args.values) do
+		local spec = VIF_VALUE_FIELDS[k]
+		local nv = spec and valid_value(spec, v)
+		if not nv then restore_wireless_uci(rb); return { ok = false, error = "字段不在白名单或值非法: " .. tostring(k) } end
+		local c = sh(UCI_BIN .. " set wireless." .. iface .. "." .. k .. "=" .. q(nv))
+		if c ~= 0 then restore_wireless_uci(rb); return { ok = false, error = "UCI 写入失败: " .. k, exit_code = c } end
+		changed[k] = nv
+	end
+	local enc_changed = want_enc ~= nil and want_enc ~= cur_enc
+	if enc_changed and want_enc ~= "none" and not args.values.key then
+		restore_wireless_uci(rb)
+		return { ok = false, error = "切换到加密模式时必须同时提供 key" }
+	end
+	if enc_changed and want_enc == "none" then
+		sh(UCI_BIN .. " delete wireless." .. iface .. ".key")
+		changed.key = "(已移除)"
+	end
+	local res = commit_and_apply(args.apply == true, true)
+	res.iface = iface
+	res.changed = changed
+	if res.error then
+		restore_wireless_uci(rb)
+		res.rolled_back = true
+		res.rollback_verified = get_wireless_config().ok
+	end
+	return res
+end
+
+local function add_vif(args)
+	args = args or {}
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	local device = args.device
+	if type(device) ~= "string" or not device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	local mode = args.mode == "sta" and "sta" or "ap"
+	local ssid = args.ssid
+	local enc = args.encryption or "none"
+	local key = args.key or ""
+	local network = args.network or "lan"
+	local bssid = args.bssid or ""
+	if type(ssid) ~= "string" or ssid == "" or #ssid > 32 then return { ok = false, error = "ssid 参数非法" } end
+	if not valid_value(VIF_VALUE_FIELDS.encryption, enc) then return { ok = false, error = "encryption 参数非法" } end
+	if enc ~= "none" then
+		if type(key) ~= "string" or not valid_value(VIF_VALUE_FIELDS.key, key) then return { ok = false, error = "加密模式下 key 必须为 8-63 位" } end
+	end
+	if type(network) ~= "string" or network == "" or #network > 64 then return { ok = false, error = "network 参数非法" } end
+	if bssid ~= "" and not valid_value(VIF_VALUE_FIELDS.bssid, bssid) then return { ok = false, error = "bssid 参数非法" } end
+	local c0, typ = sh(UCI_BIN .. " get wireless." .. device)
+	if c0 ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c0 } end
+	local cur = get_wireless_config()
+	local ap_count, sta_count = 0, 0
+	for _, f in ipairs(cur.ifaces or {}) do
+		if f.device == device then
+			if f.mode == "ap" then ap_count = ap_count + 1 end
+			if f.mode == "sta" then sta_count = sta_count + 1 end
+		end
+	end
+	if mode == "ap" and ap_count >= 16 then return { ok = false, error = "AP 数量已达上限 16" } end
+	if mode == "sta" and sta_count >= 1 then return { ok = false, error = "mtwifi-cfg 每个射频仅支持 1 个 APCLI/STA 接口" } end
+	local rb, err = backup_wireless_uci()
+	if not rb then return { ok = false, error = err } end
+	local c1, name = sh(UCI_BIN .. " add wireless wifi-iface")
+	name = name:gsub("%s+$", "")
+	if c1 ~= 0 or name == "" then restore_wireless_uci(rb); return { ok = false, error = "创建 wifi-iface 失败", exit_code = c1 } end
+	local sets = {
+		{ "device", device }, { "mode", mode }, { "ssid", ssid },
+		{ "encryption", enc }, { "network", network },
+	}
+	if enc ~= "none" then sets[#sets + 1] = { "key", key } end
+	if bssid ~= "" then sets[#sets + 1] = { "bssid", bssid } end
+	for _, s in ipairs(sets) do
+		local c = sh(UCI_BIN .. " set wireless." .. name .. "." .. s[1] .. "=" .. q(s[2]))
+		if c ~= 0 then restore_wireless_uci(rb); return { ok = false, error = "设置 " .. s[1] .. " 失败", exit_code = c } end
+	end
+	local res = commit_and_apply(args.apply == true, true)
+	res.iface = name
+	res.created = { device = device, mode = mode, ssid = ssid, encryption = enc, network = network }
+	if res.error then
+		restore_wireless_uci(rb)
+		res.rolled_back = true
+	end
+	return res
+end
+
+local function delete_vif(args)
+	args = args or {}
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	local iface = args.iface
+	if type(iface) ~= "string" or not iface:match("^[%w_@%[%]%.%-]+$") then return { ok = false, error = "iface 参数非法" } end
+	local c0, typ = sh(UCI_BIN .. " get wireless." .. iface)
+	if c0 ~= 0 or not typ:find("wifi-iface", 1, true) then return { ok = false, error = "iface 不存在或不是 wifi-iface", exit_code = c0 } end
+	local rb, err = backup_wireless_uci()
+	if not rb then return { ok = false, error = err } end
+	local c1 = sh(UCI_BIN .. " delete wireless." .. iface)
+	if c1 ~= 0 then restore_wireless_uci(rb); return { ok = false, error = "删除 wifi-iface 失败", exit_code = c1 } end
+	local res = commit_and_apply(args.apply == true, true)
+	res.iface = iface
+	if res.error then
+		restore_wireless_uci(rb)
+		res.rolled_back = true
+	end
+	return res
+end
+
 local function set_radio(args)
 	args = args or {}
 	local device = args.device
 	if type(device) ~= "string" or not device:match("^radio%d+$") then
 		return { ok = false, error = "device 参数非法" }
 	end
-	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令" } end
-	local code, out = sh(UCI_BIN .. " get wireless." .. device)
-	if code ~= 0 or not out:find("wifi%-device", 1, true) then
-		return { ok = false, error = "device 不存在或不是 wifi-device" }
+	if type(args.enabled) ~= "boolean" then
+		return { ok = false, error = "enabled 参数必须为布尔值" }
 	end
+	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
+	local c0, typ = sh(UCI_BIN .. " get wireless." .. device)
+	if c0 ~= 0 or not typ:find("wifi-device", 1, true) then
+		return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c0 }
+	end
+	local c1, prev = sh(UCI_BIN .. " get wireless." .. device .. ".disabled")
+	if c1 ~= 0 then prev = "" end
+	prev = prev:gsub("%s+$", "")
 	local disabled = args.enabled and "0" or "1"
-	local c1 = sh(UCI_BIN .. " set wireless." .. device .. ".disabled=" .. disabled)
-	local c2 = sh(UCI_BIN .. " commit wireless")
-	local res = { ok = c1 == 0 and c2 == 0, device = device, disabled = disabled == "1", applied = false }
+	local c2 = sh(UCI_BIN .. " set wireless." .. device .. ".disabled=" .. disabled)
+	local c3 = sh(UCI_BIN .. " commit wireless")
+	local res = { ok = c2 == 0 and c3 == 0, device = device, disabled = disabled == "1", applied = false }
 	if not res.ok then
 		res.error = "uci 写入失败"
+		res.exit_code = c3 ~= 0 and c3 or c2
 		return res
 	end
+	local vc, vv = sh(UCI_BIN .. " get wireless." .. device .. ".disabled")
+	vv = vv:gsub("%s+$", "")
+	res.verified = vc == 0 and vv == disabled
+	if not res.verified then
+		if prev ~= "" and prev ~= disabled then sh(UCI_BIN .. " set wireless." .. device .. ".disabled=" .. prev) end
+		sh(UCI_BIN .. " commit wireless")
+		res.error = "状态复核失败，已回滚"
+		res.previous = prev
+		return res
+	end
+	res.previous = prev
 	if args.apply then
 		if not WIFI_BIN then
 			res.error = "已写入 UCI，但缺少 wifi 命令，未应用"
 			return res
 		end
-		local c3 = sh(WIFI_BIN .. " reload")
-		res.applied = c3 == 0
-		res.apply_exit_code = c3
+		local c4 = sh(WIFI_BIN .. " reload")
+		res.applied = c4 == 0
+		res.apply_exit_code = c4
+		if not res.applied then
+			if prev ~= "" and prev ~= disabled then sh(UCI_BIN .. " set wireless." .. device .. ".disabled=" .. prev) end
+			sh(UCI_BIN .. " commit wireless")
+			res.error = "无线应用失败，已回滚"
+			res.rolled_back = true
+		end
 	end
 	return res
 end
@@ -749,7 +1067,7 @@ local function scan(args)
 	if not IWINFO_BIN then return { ok = false, error = "缺少 iwinfo" } end
 	local code, out = sh(IWINFO_BIN .. " " .. q(iface) .. " scan")
 	if code ~= 0 then
-		return { ok = false, exit_code = code, iface = iface, output = clean_text(out), error = "扫描失败（接口可能未启用）" }
+		return { ok = false, exit_code = code, iface = iface, output = clean_text(redact_text(out)), error = "扫描失败（接口可能未启用）" }
 	end
 	return { ok = true, iface = iface, cells = parse_scan(out) }
 end
@@ -831,8 +1149,8 @@ local function list_backups()
 	if not TAR_BIN then return { ok = false, error = "缺少 tar" } end
 	local list = {}
 	if fs.access(ARCHIVE_DIR) then
-		for n in fs.dir(ARCHIVE_DIR) do
-			local ts = n:match("^([%dTZ_:-]+)%.tar%.gz$")
+		for n in safe_dir(ARCHIVE_DIR) do
+			local ts = n:match("^([%d%-]+)%.tar%.gz$")
 			if ts then
 				local full = ARCHIVE_DIR .. "/" .. n
 				local meta = read_archive_meta(full) or {}
@@ -854,7 +1172,7 @@ local function list_backups()
 end
 
 local function validate_backup_id(id)
-	if type(id) ~= "string" or not id:match("^[%dTZ_:-]+$") then return nil end
+	if type(id) ~= "string" or not id:match("^[%d%-]+$") then return nil end
 	local full = ARCHIVE_DIR .. "/" .. id .. ".tar.gz"
 	if not fs.access(full) then return nil end
 	return full
@@ -957,6 +1275,19 @@ local function merge_restore(arc_content, cur_content)
 	return table.concat(out, "\n") .. "\n", skipped
 end
 
+local ROLLBACK_POINT = "/tmp/mtk-dash2/last-rollback-point"
+
+local function save_rollback_point(id)
+	fs.mkdir("/tmp/mtk-dash2")
+	fs.writefile(ROLLBACK_POINT, tostring(id or ""))
+end
+
+local function read_rollback_point()
+	local t = read_file(ROLLBACK_POINT)
+	if t and t ~= "" then return t:gsub("%s+$", "") end
+	return nil
+end
+
 local function restore(args)
 	args = args or {}
 	local full = validate_backup_id(args.backup)
@@ -964,6 +1295,7 @@ local function restore(args)
 	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令" } end
 	local rb = backup()
 	if not rb.ok then return { ok = false, error = "恢复前创建回滚点失败，已中止：" .. (rb.error or "") } end
+	save_rollback_point(rb.backup.id)
 	local tmp, code = extract_archive(full)
 	if not tmp then return { ok = false, error = "解压失败", exit_code = code } end
 	local restored, skipped_all = {}, {}
@@ -986,40 +1318,77 @@ local function restore(args)
 		end
 	end
 	rm_rf(tmp)
-	local verify = sh(UCI_BIN .. " show wireless")
-	if verify ~= 0 then
+	local v1 = sh(UCI_BIN .. " show wireless")
+	local v2 = sh(UCI_BIN .. " changes wireless")
+	if v1 ~= 0 or v2 ~= 0 then
 		for _, m in ipairs(MODULES) do
 			if fs.access(m.src .. ".mtk-pre-restore") then
 				copy_file(m.src .. ".mtk-pre-restore", m.src)
 				os.remove(m.src .. ".mtk-pre-restore")
 			end
 		end
-		return { ok = false, error = "恢复后 UCI 校验失败，已回滚所有文件", rollback_backup = rb.backup.id }
+		return { ok = false, error = "恢复后 UCI 校验失败，已回滚所有文件", exit_code = v1 ~= 0 and v1 or v2, rollback_backup = rb.backup.id }
 	end
-	return {
+	local res = {
 		ok = true,
 		restored = restored,
 		skipped = skipped_all,
 		rollback_backup = rb.backup.id,
 		redacted_note = "归档已脱敏；恢复时敏感字段保留当前值，无法保留的字段已列入 skipped",
 	}
+	local rc, rout
+	if WIFI_BIN then
+		rc, rout = sh(WIFI_BIN .. " reload")
+		res.apply_exit_code = rc
+		res.applied = rc == 0
+		if rc == 0 then
+			local after = status()
+			res.verified = after and after.up ~= false
+		end
+		if rc ~= 0 or res.verified == false then
+			for _, m in ipairs(MODULES) do
+				if fs.access(m.src .. ".mtk-pre-restore") then
+					copy_file(m.src .. ".mtk-pre-restore", m.src)
+					os.remove(m.src .. ".mtk-pre-restore")
+				end
+			end
+			sh(WIFI_BIN .. " reload")
+			res.ok = false
+			res.rolled_back = true
+			res.error = "恢复后无线应用或状态复核失败，已回滚恢复前文件"
+		end
+	else
+		res.applied = false
+		res.error = "文件已恢复，但缺少 wifi 命令，未应用"
+	end
+	for _, m in ipairs(MODULES) do
+		if fs.access(m.src .. ".mtk-pre-restore") then os.remove(m.src .. ".mtk-pre-restore") end
+	end
+	return res
 end
 
 local function apply_wireless()
-	if not WIFI_BIN then return { ok = false, error = "缺少 wifi 命令" } end
+	if not WIFI_BIN then return { ok = false, error = "缺少 wifi 命令", exit_code = 127 } end
 	local rb = backup()
 	if not rb.ok then return { ok = false, error = "应用前创建备份失败，已中止：" .. (rb.error or "") } end
+	save_rollback_point(rb.backup.id)
 	local before = status()
 	local code, out = sh(WIFI_BIN .. " reload")
 	local after = status()
-	return {
-		ok = code == 0,
+	local healthy = after and after.up ~= false and #(after.radios or {}) >= #(before.radios or {})
+	local res = {
+		ok = code == 0 and healthy,
 		exit_code = code,
 		output = clean_text(out),
 		rollback_backup = rb.backup.id,
+		verified = healthy,
 		before = { up = before.up, running = before.running, station_count = before.station_count },
 		after = { up = after.up, running = after.running, station_count = after.station_count },
 	}
+	if not healthy then
+		res.error = "应用后无线状态复核异常"
+	end
+	return res
 end
 
 local function apply_map(args)
@@ -1046,13 +1415,27 @@ local function apply_map(args)
 	return { ok = all_ok, results = results, rollback_backup = rb.backup.id }
 end
 
+local function rollback(args)
+	args = args or {}
+	local id = args.backup or read_rollback_point()
+	if not id or id == "" then return { ok = false, error = "没有可用的回滚点（此前的恢复/应用未创建，或设备已重启清除 /tmp）" } end
+	local res = restore({ backup = id })
+	res.requested = args.backup and "manual" or "auto"
+	return res
+end
+
 function list_methods()
 	return {
 		status = {},
 		capabilities = {},
 		topology = {},
 		diagnostics = {},
+		get_wireless_config = {},
 		set_radio = { device = "", enabled = true, apply = false },
+		update_device = { device = "", values = {}, apply = false },
+		update_vif = { iface = "", values = {}, apply = false },
+		add_vif = { device = "", mode = "", ssid = "", encryption = "", key = "", network = "", bssid = "", apply = false },
+		delete_vif = { iface = "", apply = false },
 		scan = { iface = "" },
 		apply_wireless = {},
 		apply_map = { restart = false },
@@ -1060,6 +1443,7 @@ function list_methods()
 		list_backups = {},
 		restore_preview = { backup = "" },
 		restore = { backup = "" },
+		rollback = { backup = "" },
 	}
 end
 
@@ -1068,7 +1452,12 @@ function call(method, args)
 	if method == "capabilities" then return capabilities() end
 	if method == "topology" then return topology() end
 	if method == "diagnostics" then return diagnostics() end
+	if method == "get_wireless_config" then return get_wireless_config() end
 	if method == "set_radio" then return set_radio(args) end
+	if method == "update_device" then return update_device(args) end
+	if method == "update_vif" then return update_vif(args) end
+	if method == "add_vif" then return add_vif(args) end
+	if method == "delete_vif" then return delete_vif(args) end
 	if method == "scan" then return scan(args) end
 	if method == "apply_wireless" then return apply_wireless() end
 	if method == "apply_map" then return apply_map(args) end
@@ -1076,17 +1465,30 @@ function call(method, args)
 	if method == "list_backups" then return list_backups() end
 	if method == "restore_preview" then return restore_preview(args) end
 	if method == "restore" then return restore(args) end
+	if method == "rollback" then return rollback(args) end
 	return { ok = false, error = "unknown method" }
 end
 
-local method = arg[1]
-if not method or method == "list" then
+-- rpcd exec plugin contract (openwrt-24.10 rpcd plugin.c):
+--   <script> list            -> print JSON method signatures
+--   <script> call <method>   -> JSON args arrive on stdin; print one JSON object
+-- manual testing: <script> <method> '<json>' (args via argv instead)
+local cmd = arg[1]
+if not cmd or cmd == "list" then
 	io.write(json.encode(list_methods()))
 	io.write("\n")
 else
+	local method, argjson
+	if cmd == "call" then
+		method = arg[2]
+		argjson = io.read("*a") or ""
+		if argjson == "" then argjson = arg[3] end
+	else
+		method, argjson = cmd, arg[2]
+	end
 	local args = {}
-	if arg[2] then
-		local ok, d = pcall(json.decode, arg[2])
+	if argjson and argjson ~= "" then
+		local ok, d = pcall(json.decode, argjson)
 		if ok and type(d) == "table" then args = d end
 	end
 	local ok, res = pcall(call, method, args)

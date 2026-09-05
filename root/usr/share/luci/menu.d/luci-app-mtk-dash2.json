@@ -1,0 +1,96 @@
+{
+	"admin/network/mtk-dash2": {
+		"title": "MTK Dash2",
+		"order": 48,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/overview": {
+		"title": "总览",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/wireless": {
+		"title": "无线配置",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/wireless"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/map": {
+		"title": "MAP EasyMesh",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/map"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2-map" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/advanced": {
+		"title": "高级参数",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/advanced"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/diagnostics": {
+		"title": "诊断工具",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/diagnostics"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/backup": {
+		"title": "备份恢复",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/backup"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	},
+
+	"admin/network/mtk-dash2/about": {
+		"title": "关于",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/about"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2" ]
+		}
+	}
+}

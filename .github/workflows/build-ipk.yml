@@ -56,8 +56,8 @@ jobs:
         run: |
           set -eu
           sed -i "s|https://downloads\\.immortalwrt\\.org|$MIRROR_BASE|g" feeds.conf.default 2>/dev/null || true
-          ./scripts/feeds update luci
-          ./scripts/feeds install luci
+          ./scripts/feeds update luci packages
+          ./scripts/feeds install luci-base luci-lib-jsonc luci-lib-nixio lua
           printf '%s\n' 'CONFIG_USE_SOURCE_MIRROR=y' >> .config
           printf '%s\n' 'CONFIG_SOURCE_MIRROR_URL="https://mirrors.vsean.net/openwrt"' >> .config
           make defconfig
@@ -66,11 +66,14 @@ jobs:
         run: |
           set -eu
           mkdir -p openwrt/package/luci-app-mtk-dash2
-          cp -a Makefile luasrc htdocs root openwrt/package/luci-app-mtk-dash2/
+          cp -a Makefile htdocs root openwrt/package/luci-app-mtk-dash2/
 
       - name: Reconfigure package selection
         working-directory: openwrt
-        run: make defconfig
+        run: |
+          set -eu
+          printf '%s\n' 'CONFIG_PACKAGE_luci-app-mtk-dash2=m' >> .config
+          make defconfig
 
       - name: Compile IPK only
         working-directory: openwrt
@@ -86,4 +89,4 @@ jobs:
       - name: Trim SDK cache
         if: always()
         run: |
-          rm -rf openwrt/build_dir openwrt/staging_dir openwrt/tmp openwrt/bin
+          rm -rf openwrt/tmp
