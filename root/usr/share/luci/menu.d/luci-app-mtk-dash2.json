@@ -46,6 +46,18 @@
 		}
 	},
 
+	"admin/network/mtk-dash2/maptools": {
+		"title": "MAP 工具",
+		"order": 35,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/map-tools"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2-map" ]
+		}
+	},
+
 	"admin/network/mtk-dash2/advanced": {
 		"title": "高级参数",
 		"order": 40,

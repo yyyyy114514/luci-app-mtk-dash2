@@ -20,72 +20,89 @@ local FIELDS = {
 		type = "enum", map = { agent = "0", controller = "1", both = "2", ["0"] = "0", ["1"] = "1", ["2"] = "2" },
 		labels = { ["0"] = "Agent", ["1"] = "Controller", ["2"] = "Controller+Agent" },
 		enum_sort = { "0", "1", "2" },
+		d = "1",
 	},
 	backhaul = {
 		file = "1905d.cfg", key = "bh_type", label = "回程类型",
 		type = "enum", map = { eth = "eth", ethernet = "eth", wifi = "wifi", wireless = "wifi" },
 		labels = { eth = "以太网优先", wifi = "无线回程" },
 		enum_sort = { "eth", "wifi" },
+		d = "eth",
 	},
 	steer = {
 		file = "mapd_cfg", key = "SteerEnable", label = "频段引导 (Steering)",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "1",
 	},
 	auto_bh = {
 		file = "mapd_cfg", key = "AutoBHSwitching", label = "自动回程切换",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "1",
 	},
 	ch_plan = {
 		file = "mapd_cfg", key = "ChPlanningEnable", label = "信道规划",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	central_steer = {
 		file = "mapd_cfg", key = "CentralizedSteering", label = "集中式引导",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	dhcp_ctl = {
 		file = "mapd_cfg", key = "DhcpCtl", label = "DHCP 控制",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	non_map_ap = {
 		file = "mapd_cfg", key = "NonMAPAPEnable", label = "非 MAP AP 兼容",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "1",
 	},
 	quick_ch = {
 		file = "mapd_cfg", key = "MAP_QuickChChange", label = "快速信道切换",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "1",
 	},
 	netopt = {
 		file = "mapd_cfg", key = "NetworkOptimizationEnabled", label = "网络优化",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	ap_steer_rssi = {
 		file = "mapd_cfg", key = "APSteerRssiTh", label = "AP 引导 RSSI 阈值",
 		type = "int", min = -100, max = 0,
+		d = "-54",
 	},
 	force_roam_rssi = {
 		file = "mapd_cfg", key = "force_roam_rssi_th", label = "强制漫游 RSSI 阈值",
 		type = "int", min = -100, max = 0,
+		d = "-70",
 	},
 	scan_th_2g = {
 		file = "mapd_cfg", key = "ScanThreshold2g", label = "2G 扫描阈值",
 		type = "int", min = -100, max = 0,
+		d = "-88",
 	},
 	scan_th_5g = {
 		file = "mapd_cfg", key = "ScanThreshold5g", label = "5G 扫描阈值",
 		type = "int", min = -100, max = 0,
+		d = "-88",
 	},
 	scan_th_6g = {
 		file = "mapd_cfg", key = "ScanThreshold6g", label = "6G 扫描阈值",
 		type = "int", min = -100, max = 0,
+		d = "-88",
 	},
 	metric_intv = {
 		file = "mapd_cfg", key = "MetricRepIntv", label = "度量上报间隔 (s)",
 		type = "int", min = 1, max = 3600,
+		d = "60",
 	},
 	bh_steer_timeout = {
 		file = "mapd_cfg", key = "BHSteerTimeout", label = "回程引导超时 (s)",
 		type = "int", min = 1, max = 3600,
+		d = "120",
 	},
 	pref_ch_2g = {
 		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel2G", label = "首选信道 2G",
@@ -106,100 +123,148 @@ local FIELDS = {
 	chplan_r2 = {
 		file = "mapd_cfg", key = "ChPlanningEnableR2", label = "信道规划 R2",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	chplan_timeout = {
 		file = "mapd_cfg", key = "ChPlanningInitTimeout", label = "信道规划初始化超时 (s)",
 		type = "int", min = 10, max = 3600,
+		d = "120",
 	},
 	chplan_scan_valid = {
 		file = "mapd_cfg", key = "ChPlanningScanValidTime", label = "扫描结果有效时间 (s)",
 		type = "int", min = 60, max = 86400,
+		d = "14400",
 	},
 	divergent_chplan = {
 		file = "mapd_cfg", key = "DivergentChPlanning", label = "分离式信道规划",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
-	bh_prio_2g = { file = "mapd_cfg", key = "BhPriority2G", label = "回程优先级 2G", type = "int", min = 0, max = 3 },
-	bh_prio_5gl = { file = "mapd_cfg", key = "BhPriority5GL", label = "回程优先级 5G-低", type = "int", min = 0, max = 3 },
-	bh_prio_5gh = { file = "mapd_cfg", key = "BhPriority5GH", label = "回程优先级 5G-高", type = "int", min = 0, max = 3 },
-	bh_prio_6g = { file = "mapd_cfg", key = "BhPriority6G", label = "回程优先级 6G", type = "int", min = 0, max = 3 },
+	bh_prio_2g = { file = "mapd_cfg", key = "BhPriority2G", label = "回程优先级 2G", type = "int", min = 0, max = 3, d = "0" },
+	bh_prio_5gl = { file = "mapd_cfg", key = "BhPriority5GL", label = "回程优先级 5G-低", type = "int", min = 0, max = 3, d = "1" },
+	bh_prio_5gh = { file = "mapd_cfg", key = "BhPriority5GH", label = "回程优先级 5G-高", type = "int", min = 0, max = 3, d = "1" },
+	bh_prio_6g = { file = "mapd_cfg", key = "BhPriority6G", label = "回程优先级 6G", type = "int", min = 0, max = 3, d = "1" },
 	bss_cfg_priority = {
 		file = "mapd_cfg", key = "bss_config_priority", label = "BSS 配置优先级",
 		type = "string",
+		d = "ra0;rax0;apclix0",
 	},
 	lowrssi_edge_re = {
 		file = "mapd_cfg", key = "LowRSSIAPSteerEdge_RE", label = "低 RSSI 引导边缘 (RE)",
 		type = "int", min = 0, max = 100,
+		d = "25",
 	},
 	band_switch_time = {
 		file = "mapd_cfg", key = "BandSwitchTime", label = "频段切换时间",
 		type = "string",
+		d = "",
 	},
 	dual_bh = {
 		file = "mapd_cfg", key = "DualBH", label = "双回程",
 		type = "string",
+		d = "",
 	},
 	max_scan = {
 		file = "mapd_cfg", key = "MaxAllowedScan", label = "最大扫描次数",
 		type = "string",
+		d = "",
 	},
 	third_party = {
 		file = "mapd_cfg", key = "ThirdPartyConnection", label = "第三方设备连接",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	role_detect_ext = {
 		file = "mapd_cfg", key = "role_detection_external", label = "外部角色检测",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
 	setpsc_6g = {
 		file = "mapd_cfg", key = "SetPSCChannel_6G", label = "6G PSC 信道",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
-	ntwk_boot_wait = { file = "mapd_cfg", key = "NtwrkOptBootupWaitTime", label = "网络优化启动等待 (s)", type = "int", min = 1, max = 600 },
-	ntwk_conn_wait = { file = "mapd_cfg", key = "NtwrkOptConnectWaitTime", label = "网络优化连接等待 (s)", type = "int", min = 1, max = 600 },
-	ntwk_disconn_wait = { file = "mapd_cfg", key = "NtwrkOptDisconnectWaitTime", label = "网络优化断开等待 (s)", type = "int", min = 1, max = 600 },
-	ntwk_period = { file = "mapd_cfg", key = "NtwrkOptPeriodicity", label = "网络优化周期 (s)", type = "int", min = 60, max = 86400 },
-	netopt_score_margin = { file = "mapd_cfg", key = "NetworkOptimizationScoreMargin", label = "网络优化评分余量", type = "int", min = 0, max = 1000 },
+	ntwk_boot_wait = { file = "mapd_cfg", key = "NtwrkOptBootupWaitTime", label = "网络优化启动等待 (s)", type = "int", min = 1, max = 600, d = "45" },
+	ntwk_conn_wait = { file = "mapd_cfg", key = "NtwrkOptConnectWaitTime", label = "网络优化连接等待 (s)", type = "int", min = 1, max = 600, d = "45" },
+	ntwk_disconn_wait = { file = "mapd_cfg", key = "NtwrkOptDisconnectWaitTime", label = "网络优化断开等待 (s)", type = "int", min = 1, max = 600, d = "45" },
+	ntwk_period = { file = "mapd_cfg", key = "NtwrkOptPeriodicity", label = "网络优化周期 (s)", type = "int", min = 60, max = 86400, d = "3600" },
+	netopt_score_margin = { file = "mapd_cfg", key = "NetworkOptimizationScoreMargin", label = "网络优化评分余量", type = "int", min = 0, max = 1000, d = "100" },
 	netopt_pref5g = {
 		file = "mapd_cfg", key = "NetworkOptPrefer5Gover2G", label = "优先 5G 优于 2G",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
 	},
-	netopt_pref5g_retry = { file = "mapd_cfg", key = "NetworkOptPrefer5Gover2GRetryCnt", label = "5G 优先重试次数", type = "int", min = 0, max = 100 },
-	netopt_user_priority = { file = "mapd_cfg", key = "NetOptUserSetPriority", label = "用户优先级", type = "int", min = 0, max = 100 },
-	ntwk_data_collect = { file = "mapd_cfg", key = "NtwrkOptDataCollectionTime", label = "数据采集时间 (s)", type = "int", min = 1, max = 3600 },
-	ntwk_postcac = { file = "mapd_cfg", key = "NtwrkOptPostCACTriggerTime", label = "CAC 后触发时间 (s)", type = "int", min = 0, max = 600 },
-	cu_overload_2g = { file = "mapd_cfg", key = "CUOverloadTh_2G", label = "2G 信道占用过载阈值", type = "int", min = 1, max = 100 },
-	cu_overload_5gl = { file = "mapd_cfg", key = "CUOverloadTh_5G_L", label = "5G-低 信道占用过载阈值", type = "int", min = 1, max = 100 },
-	cu_overload_5gh = { file = "mapd_cfg", key = "CUOverloadTh_5G_H", label = "5G-高 信道占用过载阈值", type = "int", min = 1, max = 100 },
-	bh0_valid = { file = "mapd_cfg", key = "BhProfile0Valid", label = "回程配置 0 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
-	bh0_ssid = { file = "mapd_cfg", key = "BhProfile0Ssid", label = "回程 SSID 0", type = "string" },
-	bh0_auth = { file = "mapd_cfg", key = "BhProfile0AuthMode", label = "回程认证 0", type = "string" },
-	bh0_enc = { file = "mapd_cfg", key = "BhProfile0EncrypType", label = "回程加密 0", type = "string" },
-	bh0_key = { file = "mapd_cfg", key = "BhProfile0WpaPsk", label = "回程密钥 0", secret = true },
-	bh0_raid = { file = "mapd_cfg", key = "BhProfile0RaID", label = "回程射频 0", type = "string" },
-	bh1_valid = { file = "mapd_cfg", key = "BhProfile1Valid", label = "回程配置 1 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
-	bh1_ssid = { file = "mapd_cfg", key = "BhProfile1Ssid", label = "回程 SSID 1", type = "string" },
-	bh1_auth = { file = "mapd_cfg", key = "BhProfile1AuthMode", label = "回程认证 1", type = "string" },
-	bh1_enc = { file = "mapd_cfg", key = "BhProfile1EncrypType", label = "回程加密 1", type = "string" },
-	bh1_key = { file = "mapd_cfg", key = "BhProfile1WpaPsk", label = "回程密钥 1", secret = true },
-	bh1_raid = { file = "mapd_cfg", key = "BhProfile1RaID", label = "回程射频 1", type = "string" },
-	bh2_valid = { file = "mapd_cfg", key = "BhProfile2Valid", label = "回程配置 2 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
-	bh2_ssid = { file = "mapd_cfg", key = "BhProfile2Ssid", label = "回程 SSID 2", type = "string" },
-	bh2_auth = { file = "mapd_cfg", key = "BhProfile2AuthMode", label = "回程认证 2", type = "string" },
-	bh2_enc = { file = "mapd_cfg", key = "BhProfile2EncrypType", label = "回程加密 2", type = "string" },
-	bh2_key = { file = "mapd_cfg", key = "BhProfile2WpaPsk", label = "回程密钥 2", secret = true },
-	bh2_raid = { file = "mapd_cfg", key = "BhProfile2RaID", label = "回程射频 2", type = "string" },
-	ctrl_alid = { file = "1905d.cfg", key = "map_controller_alid", label = "Controller ALID", type = "mac" },
-	agent_alid = { file = "1905d.cfg", key = "map_agent_alid", label = "Agent ALID", type = "mac" },
-	radio_band = { file = "1905d.cfg", key = "radio_band", label = "各射频频段", type = "string" },
-	br_inf = { file = "1905d.cfg", key = "br_inf", label = "桥接接口", type = "string" },
-	al_inf = { file = "1905d.cfg", key = "al_inf", label = "AL 接口", type = "string" },
-	eth_dev_name = { file = "1905d.cfg", key = "ethernet_dev_name", label = "以太网设备名（高级）", type = "string" },
-	decrypt_th = { file = "1905d.cfg", key = "decrypt_fail_threshold", label = "解密失败阈值", type = "int", min = 1, max = 100 },
-	gtk_rekey = { file = "1905d.cfg", key = "gtk_rekey_interval", label = "GTK 重键间隔 (s)", type = "int", min = 60, max = 86400 },
+	netopt_pref5g_retry = { file = "mapd_cfg", key = "NetworkOptPrefer5Gover2GRetryCnt", label = "5G 优先重试次数", type = "int", min = 0, max = 100, d = "0" },
+	netopt_user_priority = { file = "mapd_cfg", key = "NetOptUserSetPriority", label = "用户优先级", type = "int", min = 0, max = 100, d = "0" },
+	ntwrk_data_collect = { file = "mapd_cfg", key = "NtwrkOptDataCollectionTime", label = "数据采集时间 (s)", type = "int", min = 1, max = 3600, d = "60" },
+	ntwrk_postcac = { file = "mapd_cfg", key = "NtwrkOptPostCACTriggerTime", label = "CAC 后触发时间 (s)", type = "int", min = 0, max = 600, d = "30" },
+	cu_overload_2g = { file = "mapd_cfg", key = "CUOverloadTh_2G", label = "2G 信道占用过载阈值", type = "int", min = 1, max = 100, d = "70" },
+	cu_overload_5gl = { file = "mapd_cfg", key = "CUOverloadTh_5G_L", label = "5G-低 信道占用过载阈值", type = "int", min = 1, max = 100, d = "80" },
+	cu_overload_5gh = { file = "mapd_cfg", key = "CUOverloadTh_5G_H", label = "5G-高 信道占用过载阈值", type = "int", min = 1, max = 100, d = "80" },
+	cu_overload_6g = { file = "mapd_cfg", key = "CUOverloadTh_6G", label = "6G 信道占用过载阈值", type = "int", min = 1, max = 100, d = "80" },
+	bh0_valid = { file = "mapd_cfg", key = "BhProfile0Valid", label = "回程配置 0 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" }, d = "0" },
+	bh0_ssid = { file = "mapd_cfg", key = "BhProfile0Ssid", label = "回程 SSID 0", type = "string", d = "" },
+	bh0_auth = { file = "mapd_cfg", key = "BhProfile0AuthMode", label = "回程认证 0", type = "string", d = "" },
+	bh0_enc = { file = "mapd_cfg", key = "BhProfile0EncrypType", label = "回程加密 0", type = "string", d = "" },
+	bh0_key = { file = "mapd_cfg", key = "BhProfile0WpaPsk", label = "回程密钥 0", secret = true, d = "" },
+	bh0_raid = { file = "mapd_cfg", key = "BhProfile0RaID", label = "回程射频 0", type = "string", d = "" },
+	bh1_valid = { file = "mapd_cfg", key = "BhProfile1Valid", label = "回程配置 1 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" }, d = "0" },
+	bh1_ssid = { file = "mapd_cfg", key = "BhProfile1Ssid", label = "回程 SSID 1", type = "string", d = "" },
+	bh1_auth = { file = "mapd_cfg", key = "BhProfile1AuthMode", label = "回程认证 1", type = "string", d = "" },
+	bh1_enc = { file = "mapd_cfg", key = "BhProfile1EncrypType", label = "回程加密 1", type = "string", d = "" },
+	bh1_key = { file = "mapd_cfg", key = "BhProfile1WpaPsk", label = "回程密钥 1", secret = true, d = "" },
+	bh1_raid = { file = "mapd_cfg", key = "BhProfile1RaID", label = "回程射频 1", type = "string", d = "" },
+	bh2_valid = { file = "mapd_cfg", key = "BhProfile2Valid", label = "回程配置 2 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" }, d = "0" },
+	bh2_ssid = { file = "mapd_cfg", key = "BhProfile2Ssid", label = "回程 SSID 2", type = "string", d = "" },
+	bh2_auth = { file = "mapd_cfg", key = "BhProfile2AuthMode", label = "回程认证 2", type = "string", d = "" },
+	bh2_enc = { file = "mapd_cfg", key = "BhProfile2EncrypType", label = "回程加密 2", type = "string", d = "" },
+	bh2_key = { file = "mapd_cfg", key = "BhProfile2WpaPsk", label = "回程密钥 2", secret = true, d = "" },
+	bh2_raid = { file = "mapd_cfg", key = "BhProfile2RaID", label = "回程射频 2", type = "string", d = "" },
+	ctrl_alid = { file = "1905d.cfg", key = "map_controller_alid", label = "Controller ALID", type = "mac", d = "" },
+	agent_alid = { file = "1905d.cfg", key = "map_agent_alid", label = "Agent ALID", type = "mac", d = "" },
+	radio_band = { file = "1905d.cfg", key = "radio_band", label = "各射频频段", type = "string", d = "24G;5G;5G;" },
+	br_inf = { file = "1905d.cfg", key = "br_inf", label = "桥接接口", type = "string", d = "br-lan" },
+	al_inf = { file = "1905d.cfg", key = "al_inf", label = "AL 接口", type = "string", d = "ra0" },
+	eth_dev_name = { file = "1905d.cfg", key = "ethernet_dev_name", label = "以太网设备名（高级）", type = "string", d = "" },
+	decrypt_th = { file = "1905d.cfg", key = "decrypt_fail_threshold", label = "解密失败阈值", type = "int", min = 1, max = 100, d = "10" },
+	gtk_rekey = { file = "1905d.cfg", key = "gtk_rekey_interval", label = "GTK 重键间隔 (s)", type = "int", min = 60, max = 86400, d = "3600" },
 	ob_wan_only = {
 		file = "1905d.cfg", key = "ob_wan_only", label = "仅 WAN 口以太网上线",
 		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+		d = "0",
+	},
+
+	-- Device / Data Element info (mapd_cfg)
+	de_serial = { file = "mapd_cfg", key = "DESerialNumber", label = "序列号 (DE)", type = "string", d = "v3.0" },
+	de_sw_ver = { file = "mapd_cfg", key = "DESoftwareVersion", label = "软件版本 (DE)", type = "string", d = "v3.0" },
+	de_exec_env = { file = "mapd_cfg", key = "DEExecutionEnv", label = "执行环境 (DE)", type = "string", d = "Linux-Openwrt" },
+	de_chipset_vendor = { file = "mapd_cfg", key = "DEChipsetVendor", label = "芯片厂商 (DE)", type = "string", d = "MediaTek" },
+	de_sta_event_path = { file = "mapd_cfg", key = "DEStaConEventPath", label = "STA 事件路径 (DE)", type = "string", optional = true, d = "" },
+	lan_if = { file = "mapd_cfg", key = "lan_interface", label = "LAN 接口", type = "string", d = "eth0" },
+	wan_if = { file = "mapd_cfg", key = "wan_interface", label = "WAN 接口", type = "string", d = "eth1" },
+	lr_steer_edge_root = { file = "mapd_cfg", key = "LowRSSIAPSteerEdge_root", label = "低 RSSI 引导边缘 (Root)", type = "string", optional = true, d = "" },
+
+	-- channel planning fine tuning (mapd_cfg, optional, empty = 不设置)
+	chplan_r2_bw = { file = "mapd_cfg", key = "ChPlanningEnableR2withBW", label = "信道规划 R2 按频宽", type = "string", optional = true, d = "" },
+	chplan_idle_bytes = { file = "mapd_cfg", key = "ChPlanningIdleByteCount", label = "信道规划空闲字节数", type = "string", optional = true, d = "" },
+	chplan_idle_time = { file = "mapd_cfg", key = "ChPlanningIdleTime", label = "信道规划空闲时间", type = "string", optional = true, d = "" },
+	chplan_cu_th_2g = { file = "mapd_cfg", key = "ChPlanningChUtilThresh_24G", label = "信道规划占用阈值 2.4G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_cu_th_5gl = { file = "mapd_cfg", key = "ChPlanningChUtilThresh_5GL", label = "信道规划占用阈值 5G-低", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_cu_th_6g = { file = "mapd_cfg", key = "ChPlanningChUtilThresh_6G", label = "信道规划占用阈值 6G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_edcca_th_2g = { file = "mapd_cfg", key = "ChPlanningEDCCAThresh_24G", label = "信道规划 EDCCA 阈值 2.4G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_edcca_th_5gl = { file = "mapd_cfg", key = "ChPlanningEDCCAThresh_5GL", label = "信道规划 EDCCA 阈值 5G-低", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_edcca_th_6g = { file = "mapd_cfg", key = "ChPlanningEDCCAThresh_6G", label = "信道规划 EDCCA 阈值 6G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_obss_th_2g = { file = "mapd_cfg", key = "ChPlanningOBSSThresh_24G", label = "信道规划 OBSS 阈值 2.4G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_obss_th_5gl = { file = "mapd_cfg", key = "ChPlanningOBSSThresh_5GL", label = "信道规划 OBSS 阈值 5G-低", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_obss_th_6g = { file = "mapd_cfg", key = "ChPlanningOBSSThresh_6G", label = "信道规划 OBSS 阈值 6G", type = "int", min = 1, max = 100, optional = true, d = "" },
+	chplan_r2_metric_intv = { file = "mapd_cfg", key = "ChPlanningR2MetricReportingInterval", label = "信道规划 R2 度量上报间隔", type = "int", min = 1, max = 86400, optional = true, d = "" },
+	chplan_r2_min_score = { file = "mapd_cfg", key = "ChPlanningR2MinScoreMargin", label = "信道规划 R2 最小评分余量", type = "int", min = 1, max = 1000, optional = true, d = "" },
+	chplan_r2_mon_prohibit = { file = "mapd_cfg", key = "ChPlanningR2MonitorProhibitSecs", label = "信道规划 R2 禁止监测 (s)", type = "int", min = 1, max = 3600, optional = true, d = "" },
+	chplan_r2_mon_timeout = { file = "mapd_cfg", key = "ChPlanningR2MonitorTimeoutSecs", label = "信道规划 R2 监测超时 (s)", type = "int", min = 1, max = 3600, optional = true, d = "" },
+	map_ver = {
+		file = "1905d.cfg", key = "map_ver", label = "MAP 版本",
+		type = "enum", map = { R1 = "R1", R2 = "R2" }, labels = { R1 = "R1", R2 = "R2" }, enum_sort = { "R1", "R2" },
+		d = "R1",
 	},
 }
 
@@ -211,11 +276,18 @@ local FIELD_IDS = {
 	"dual_bh", "max_scan", "third_party", "role_detect_ext", "setpsc_6g",
 	"ntwk_boot_wait", "ntwk_conn_wait", "ntwk_disconn_wait", "ntwk_period", "netopt_score_margin", "netopt_pref5g",
 	"netopt_pref5g_retry", "netopt_user_priority", "ntwrk_data_collect", "ntwrk_postcac",
-	"cu_overload_2g", "cu_overload_5gl", "cu_overload_5gh",
+	"cu_overload_2g", "cu_overload_5gl", "cu_overload_5gh", "cu_overload_6g",
 	"bh0_valid", "bh0_ssid", "bh0_auth", "bh0_enc", "bh0_key", "bh0_raid",
 	"bh1_valid", "bh1_ssid", "bh1_auth", "bh1_enc", "bh1_key", "bh1_raid",
 	"bh2_valid", "bh2_ssid", "bh2_auth", "bh2_enc", "bh2_key", "bh2_raid",
-	"ctrl_alid", "agent_alid", "radio_band", "br_inf", "al_inf", "eth_dev_name", "decrypt_th", "gtk_rekey", "ob_wan_only",
+	"ctrl_alid", "agent_alid", "radio_band", "br_inf", "al_inf", "eth_dev_name", "decrypt_th", "gtk_rekey", "ob_wan_only", "map_ver",
+	"de_serial", "de_sw_ver", "de_exec_env", "de_chipset_vendor", "de_sta_event_path", "lan_if", "wan_if",
+	"lr_steer_edge_root",
+	"chplan_r2_bw", "chplan_idle_bytes", "chplan_idle_time",
+	"chplan_cu_th_2g", "chplan_cu_th_5gl", "chplan_cu_th_6g",
+	"chplan_edcca_th_2g", "chplan_edcca_th_5gl", "chplan_edcca_th_6g",
+	"chplan_obss_th_2g", "chplan_obss_th_5gl", "chplan_obss_th_6g",
+	"chplan_r2_metric_intv", "chplan_r2_min_score", "chplan_r2_mon_prohibit", "chplan_r2_mon_timeout",
 }
 
 local function bin(name)
@@ -438,7 +510,8 @@ local function field_state(id)
 	end
 	local st = {
 		id = id, label = f.label, file = f.file, key = f.key,
-		present = cur ~= nil, value = cur and stripq(cur.value) or nil,
+		present = cur ~= nil or f.optional == true,
+		value = (cur ~= nil or f.optional == true) and (cur and stripq(cur.value) or "") or nil,
 	}
 	if f.secret then
 		st.secret = true
@@ -489,12 +562,21 @@ local FIELD_GROUPS = {
 	third_party = "网络优化", role_detect_ext = "网络优化",
 	dhcp_ctl = "其他 MAP 参数", non_map_ap = "其他 MAP 参数", bss_cfg_priority = "其他 MAP 参数",
 	dual_bh = "其他 MAP 参数", max_scan = "其他 MAP 参数", setpsc_6g = "其他 MAP 参数",
-	cu_overload_2g = "其他 MAP 参数", cu_overload_5gl = "其他 MAP 参数", cu_overload_5gh = "其他 MAP 参数",
+	cu_overload_2g = "其他 MAP 参数", cu_overload_5gl = "其他 MAP 参数", cu_overload_5gh = "其他 MAP 参数", cu_overload_6g = "其他 MAP 参数",
 	ctrl_alid = "1905d 链路配置", agent_alid = "1905d 链路配置", radio_band = "1905d 链路配置",
 	br_inf = "1905d 链路配置", al_inf = "1905d 链路配置", eth_dev_name = "1905d 链路配置",
-	decrypt_th = "1905d 链路配置", gtk_rekey = "1905d 链路配置", ob_wan_only = "1905d 链路配置",
+	decrypt_th = "1905d 链路配置", gtk_rekey = "1905d 链路配置", ob_wan_only = "1905d 链路配置", map_ver = "1905d 链路配置",
+	lowrssi_edge_re = "漫游与引导", band_switch_time = "漫游与引导",
+	lr_steer_edge_root = "漫游与引导",
+	chplan_r2_bw = "信道规划", chplan_idle_bytes = "信道规划", chplan_idle_time = "信道规划",
+	chplan_cu_th_2g = "信道规划", chplan_cu_th_5gl = "信道规划", chplan_cu_th_6g = "信道规划",
+	chplan_edcca_th_2g = "信道规划", chplan_edcca_th_5gl = "信道规划", chplan_edcca_th_6g = "信道规划",
+	chplan_obss_th_2g = "信道规划", chplan_obss_th_5gl = "信道规划", chplan_obss_th_6g = "信道规划",
+	chplan_r2_metric_intv = "信道规划", chplan_r2_min_score = "信道规划", chplan_r2_mon_prohibit = "信道规划", chplan_r2_mon_timeout = "信道规划",
+	de_serial = "设备信息", de_sw_ver = "设备信息", de_exec_env = "设备信息", de_chipset_vendor = "设备信息",
+	de_sta_event_path = "设备信息", lan_if = "设备信息", wan_if = "设备信息",
 }
-local GROUP_ORDER = { "角色与回程", "回程配置 (BhProfile)", "回程优先级", "漫游与引导", "信道规划", "网络优化", "其他 MAP 参数", "1905d 链路配置" }
+local GROUP_ORDER = { "角色与回程", "回程配置 (BhProfile)", "回程优先级", "漫游与引导", "信道规划", "网络优化", "设备信息", "其他 MAP 参数", "1905d 链路配置" }
 
 local function fields_meta()
 	local meta = {}
@@ -539,6 +621,7 @@ local function capabilities()
 	return {
 		ok = true,
 		wappctrl = wc ~= nil,
+		iface = first_wifi_iface(),
 		config_present = fs.access(MAP_DIR .. "/mapd_cfg") ~= nil or fs.access(MAP_DIR .. "/1905d.cfg") ~= nil,
 		writable = writable,
 		writable_fields = writable_fields,
@@ -563,8 +646,16 @@ local function set_field(args)
 	for _, ln in ipairs(parse_file(text)) do
 		if ln.kind == "kv" and ln.key:lower() == f.key:lower() then cur_line = ln break end
 	end
-	if not cur_line then return { ok = false, error = "配置中不存在键 " .. f.key .. "（固件版本可能不同）" } end
-	local cur = stripq(cur_line.value)
+	local append_mode = cur_line == nil
+	if append_mode then
+		if not f.optional then
+			return { ok = false, error = "配置中不存在键 " .. f.key .. "（固件版本可能不同）" }
+		end
+		if type(args.value) ~= "string" or args.value == "" then
+			return { ok = true, unchanged = true }
+		end
+	end
+	local cur = cur_line and stripq(cur_line.value) or ""
 	local nv
 	if f.secret then
 		local raw = args.value
@@ -612,8 +703,8 @@ local function set_field(args)
 	if not f.secret and cur == nv then return { ok = false, error = "值未变化（当前: " .. cur .. "）" } end
 	-- keep original quoting style (mapd files are unquoted key=value)
 	local openq, closeq = "", ""
-	if cur_line.value:sub(1, 1) == '"' then openq, closeq = '"', '"' end
-	if cur_line.value:sub(1, 1) == "'" then openq, closeq = "'", "'" end
+	if cur_line and cur_line.value:sub(1, 1) == '"' then openq, closeq = '"', '"' end
+	if cur_line and cur_line.value:sub(1, 1) == "'" then openq, closeq = "'", "'" end
 	local snap = path .. ".mtk-rollback"
 	local sf = io.open(snap, "wb")
 	if not sf then return { ok = false, error = "无法创建回滚快照" } end
@@ -626,6 +717,9 @@ local function set_field(args)
 		else
 			out_lines[#out_lines + 1] = ln.raw
 		end
+	end
+	if append_mode then
+		out_lines[#out_lines + 1] = f.key .. "=" .. nv
 	end
 	local content = table.concat(out_lines, "\n") .. "\n"
 	local function rollback()
@@ -654,6 +748,542 @@ local function set_field(args)
 	return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path }
 end
 
+-- ---------------------------------------------------------------------------
+-- shared helpers for wappctrl / iwpriv operations (all user input is
+-- validated before it ever reaches a shell command line)
+-- ---------------------------------------------------------------------------
+
+local function v_iface(name)
+	name = tostring(name or "")
+	if not name:match("^[%w_.-]+$") or #name > 32 then return nil end
+	if not fs.access("/sys/class/net/" .. name) then return nil end
+	return name
+end
+
+local function v_apcli(name)
+	name = tostring(name or "")
+	if not name:match("^apclix?%d+$") then return nil end
+	return name
+end
+
+local function v_mac(mac)
+	mac = tostring(mac or "")
+	if not mac:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then return nil end
+	return mac
+end
+
+local function v_uint(s)
+	s = tostring(s or "")
+	if not s:match("^[0-9]+$") then return nil end
+	return s
+end
+
+local function v_id(s)
+	s = tostring(s or "")
+	if s == "*" or s:match("^[0-9]+$") then return s end
+	return nil
+end
+
+local function v_text(s)
+	s = tostring(s or "")
+	if s == "" then return nil end
+	if #s > 128 then return nil end
+	if s:find("[%z\1-\31\127\"'\\`$]") then return nil end
+	return s
+end
+
+-- pick the first wifi iface for daemon-facing commands (never hardcoded)
+local function pick_iface(arg)
+	local i = v_iface(arg)
+	if i then return i end
+	return first_wifi_iface()
+end
+
+-- execute `wappctrl <iface> <subcmd>`; returns (code, output)
+local function wapp_cmd(iface, subcmd)
+	local wc = bin("wappctrl")
+	if not wc then return nil, "missing wappctrl" end
+	local code, out = sh(q(wc) .. " " .. q(iface) .. " " .. subcmd)
+	return code, out
+end
+
+local function wapp_ok(iface, subcmd)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	local code, out = wapp_cmd(iface, subcmd)
+	if not code then return { ok = false, error = out or "missing wappctrl" } end
+	if code ~= 0 then
+		return { ok = false, error = clean(out):gsub("%s+$", ""), exit_code = code }
+	end
+	return { ok = true, output = clean(out):gsub("%s+$", ""), exit_code = code, iface = iface }
+end
+
+-- atomic multi-key update of one MAP kv file with snapshot + rollback
+local function apply_kv(file, updates)
+	local path = MAP_DIR .. "/" .. file
+	local text = read(path)
+	if not text then return { ok = false, error = "配置文件缺失: " .. path } end
+	if text:find("\r") then return { ok = false, error = "配置文件含 CRLF 换行，拒绝改写" } end
+	local snap = path .. ".mtk-rollback"
+	local sf = io.open(snap, "wb")
+	if not sf then return { ok = false, error = "无法创建回滚快照" } end
+	sf:write(text)
+	sf:close()
+	local out_lines, done = {}, {}
+	for _, ln in ipairs(parse_file(text)) do
+		local replaced = false
+		if ln.kind == "kv" then
+			local lk = ln.key:lower()
+			for k, v in pairs(updates) do
+				if k:lower() == lk then
+					out_lines[#out_lines + 1] = ln.key .. "=" .. v
+					done[k] = true
+					replaced = true
+					break
+				end
+			end
+		end
+		if not replaced then out_lines[#out_lines + 1] = ln.raw end
+	end
+	for k, v in pairs(updates) do
+		if not done[k] then out_lines[#out_lines + 1] = k .. "=" .. v end
+	end
+	local content = table.concat(out_lines, "\n") .. "\n"
+	local function rollback()
+		local c = read(snap)
+		if c then write_atomic(path, c) end
+		os.remove(snap)
+	end
+	if not write_atomic(path, content) then
+		rollback()
+		return { ok = false, error = "配置写入失败，已回滚", rollback = true }
+	end
+	if (read(path) or "") ~= content then
+		rollback()
+		return { ok = false, error = "配置写入校验失败，已回滚", rollback = true }
+	end
+	os.remove(snap)
+	return { ok = true, file = file }
+end
+
+local AUTH_MODES = {
+	OPEN = true, WPAPSK = true, WPA2PSK = true, WPA3PSK = true,
+	WPAPSKWPA2PSK = true, WPA2PSKWPA3PSK = true,
+}
+
+local function apcli_ifaces()
+	local out, seen = {}, {}
+	local code, ls = sh("ls /sys/class/net 2>/dev/null")
+	if code == 0 then
+		for n in ls:gmatch("[%w_.%-]+") do
+			if n:match("^apclix?%d+$") and not seen[n] then
+				seen[n] = true
+				out[#out + 1] = n
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+local function bh_status()
+	local backhauls = {}
+	for _, ifname in ipairs(apcli_ifaces()) do
+		local e = { ifname = ifname, state = "down", ssid = "", bssid = "", rssi = "" }
+		local flags = fs.access("/sys/class/net/" .. ifname .. "/flags")
+			and read("/sys/class/net/" .. ifname .. "/flags") or nil
+		local n = flags and tonumber(flags:gsub("%s+", ""), 16)
+		if n then e.state = (n % 2 == 1) and "up" or "down" end
+		local code, iw = sh("iwconfig " .. q(ifname) .. " 2>/dev/null")
+		if code == 0 and iw then
+			e.ssid = iw:match('ESSID:"(.-)"') or ""
+			e.bssid = (iw:match("Access Point:%s*([%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x])") or ""):upper()
+			e.rssi = iw:match("Signal level[=:]%s*(%-?%d+)") or ""
+		end
+		backhauls[#backhauls + 1] = e
+	end
+	return { ok = true, backhauls = backhauls }
+end
+
+local function bh_scan(args)
+	args = args or {}
+	local iface = v_apcli(args.iface)
+	if not iface then return { ok = false, error = "Invalid interface name" } end
+	if not fs.access("/sys/class/net/" .. iface) then
+		return { ok = false, error = "接口不存在: " .. iface }
+	end
+	sh("iwpriv " .. q(iface) .. " set SiteSurvey=0")
+	os.execute("sleep 4")
+	local code, out = sh("iwpriv " .. q(iface) .. " get_site_survey 2>/dev/null")
+	local cols, results = nil, {}
+	for line in tostring(out or ""):gmatch("[^\r\n]+") do
+		local has_mac = line:match("%s+%x%x:%x%x:%x%x:%x%x:%x%x:%x%x%s+")
+		if #line > 40 and not has_mac then
+			local c = {}
+			local function col(pat)
+				local s, e = line:find(pat)
+				if s then c[#c + 1] = { s, e - s } end
+			end
+			col("Ch "); col("SSID"); col("BSSID"); col("Security")
+			col("Sig%a%al"); col("W%-Mode"); col("ExtCH"); col("WPS")
+			if #c >= 5 then cols = c end
+		elseif cols and has_mac then
+			local order = { "channel", "ssid", "bssid", "security", "rssi", "mode", "extch", "wps" }
+			local entry = {}
+			for i, def in ipairs(cols) do
+				local name = order[i] or ("col" .. i)
+				entry[name] = line:sub(def[1], def[1] + def[2]):gsub("^%s+", ""):gsub("%s+$", "")
+			end
+			if entry.bssid ~= "" and #entry.bssid >= 17 then
+				entry.bssid = entry.bssid:sub(1, 17):upper()
+				results[#results + 1] = entry
+			end
+		end
+	end
+	table.sort(results, function(a, b)
+		return (tonumber(a.rssi) or -999) > (tonumber(b.rssi) or -999)
+	end)
+	-- guard against a stale "Disconnected" survey from a missing driver
+	if code ~= 0 then
+		return { ok = false, error = clean(out):gsub("%s+$", ""), exit_code = code }
+	end
+	return { ok = true, iface = iface, results = results }
+end
+
+local function bh_connect(args)
+	args = args or {}
+	local iface = v_apcli(args.iface)
+	if not iface then return { ok = false, error = "Invalid interface name" } end
+	local ssid = v_text(args.ssid)
+	if not ssid then return { ok = false, error = "缺少回程 SSID" } end
+	local auth = tostring(args.auth or "")
+	if auth == "" then auth = kv_get("mapd_cfg", "BhProfile0AuthMode") or "WPA2PSK" end
+	if not AUTH_MODES[auth] then return { ok = false, error = "Invalid authentication mode: " .. auth } end
+	local enc = tostring(args.enc or "")
+	local key = tostring(args.key or "")
+	if auth ~= "OPEN" then
+		if enc == "" then enc = "AES" end
+		if key == "" then key = kv_get("mapd_cfg", "BhProfile0WpaPsk") or "" end
+		if key == "" then return { ok = false, error = "加密模式需要回程密钥" } end
+		if #key < 8 or #key > 63 then return { ok = false, error = "回程密钥需为 8-63 位" } end
+		if not v_text(key) then return { ok = false, error = "回程密钥含非法字符" } end
+		if not v_text(enc) then return { ok = false, error = "加密类型含非法字符" } end
+	else
+		enc, key = "", ""
+	end
+	local r1 = apply_kv("mapd_cfg", {
+		BhProfile0Valid = "1",
+		BhProfile0Ssid = ssid,
+		BhProfile0AuthMode = auth,
+		BhProfile0EncrypType = enc,
+		BhProfile0WpaPsk = key,
+	})
+	if not r1.ok then return r1 end
+	local r2 = apply_kv("1905d.cfg", { bh_type = "wifi" })
+	if not r2.ok then return r2 end
+	sh("ifconfig " .. q(iface) .. " up")
+	sh("iwpriv " .. q(iface) .. " set ApCliEnable=0")
+	sh("iwpriv " .. q(iface) .. " set ApCliAuthMode=" .. auth)
+	if auth ~= "OPEN" then
+		sh("iwpriv " .. q(iface) .. " set ApCliEncrypType=" .. q(enc))
+		sh("iwpriv " .. q(iface) .. " set ApCliWPAPSK=" .. q(key))
+	end
+	sh("iwpriv " .. q(iface) .. " set ApCliSsid=" .. q(ssid))
+	sh("iwpriv " .. q(iface) .. " set ApCliEnable=1")
+	sh("iwpriv " .. q(iface) .. " set ApCliAutoConnect=3")
+	return { ok = true, iface = iface, ssid = ssid, auth = auth, persisted = true }
+end
+
+local function bh_disconnect(args)
+	args = args or {}
+	local iface = v_apcli(args.iface)
+	if not iface then return { ok = false, error = "Invalid interface name" } end
+	sh("iwpriv " .. q(iface) .. " set ApCliEnable=0")
+	sh("ifconfig " .. q(iface) .. " down")
+	return { ok = true, iface = iface }
+end
+
+local function pbc_trigger(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	return wapp_ok(iface, "wps_pbc_trigger")
+end
+
+local function set_bh_type(args)
+	args = args or {}
+	local t = tostring(args.type or "")
+	if t ~= "eth" and t ~= "wifi" then return { ok = false, error = "回程类型需为 eth 或 wifi" } end
+	local iface = pick_iface("")
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	local r = wapp_ok(iface, "map set_bh_type " .. t)
+	if not r.ok then return r end
+	return apply_kv("1905d.cfg", { bh_type = t })
+end
+
+local function wapp_reload(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	return wapp_ok(iface, "reload")
+end
+
+local function wapp_version(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	local _, version = wapp_cmd(iface, "version")
+	local _, hs = wapp_cmd(iface, "hs_version")
+	local _, drv = wapp_cmd(iface, "drv_version")
+	return {
+		ok = true, iface = iface,
+		version = clean(tostring(version or "")),
+		hs_version = clean(tostring(hs or "")),
+		drv_version = clean(tostring(drv or "")),
+	}
+end
+
+local function steer_sta(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	local mac = v_mac(args.mac)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	if not mac then return { ok = false, error = "MAC 地址格式非法" } end
+	return wapp_ok(iface, "mbo steer_sta " .. mac)
+end
+
+local function btm_req(args)
+	args = args or {}
+	local mac = v_mac(args.mac)
+	if not mac then return { ok = false, error = "MAC 地址格式非法" } end
+	local ess = (tostring(args.ess_imm or "") == "1") and "1" or "0"
+	local timer = v_uint(args.timer) or "0"
+	local iface = pick_iface("")
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	local cmd = "btmreq " .. mac .. " " .. ess .. " " .. timer
+	local url = v_text(args.url)
+	if url then cmd = cmd .. " " .. q(url) end
+	return wapp_ok(iface, cmd)
+end
+
+local function wnm_req(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	local mac = v_mac(args.mac)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	if not mac then return { ok = false, error = "MAC 地址格式非法" } end
+	local cmd = "wnmreq " .. mac
+	local url = v_text(args.url)
+	if url then cmd = cmd .. " " .. q(url) end
+	return wapp_ok(iface, cmd)
+end
+
+local function wnm_req2(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	local mac = v_mac(args.mac)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	if not mac then return { ok = false, error = "MAC 地址格式非法" } end
+	local code = v_uint(args.code) or "1"
+	local delay = v_uint(args.delay) or "0"
+	local cmd = "wnmreq2 " .. mac .. " " .. code .. " " .. delay
+	local url = v_text(args.url)
+	if url then cmd = cmd .. " " .. q(url) end
+	return wapp_ok(iface, cmd)
+end
+
+local function qos_map(args)
+	args = args or {}
+	local iface = pick_iface(args.iface)
+	local mac = v_mac(args.mac)
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	if not mac then return { ok = false, error = "MAC 地址格式非法" } end
+	local cmd = "qosmap " .. mac
+	local exc = v_uint(args.dscp_exception)
+	if exc then cmd = cmd .. " " .. exc end
+	local rng = v_text(args.dscp_range)
+	if rng then cmd = cmd .. " " .. q(rng) end
+	return wapp_ok(iface, cmd)
+end
+
+local function proxy_arp_list(args)
+	args = args or {}
+	local family = tostring(args.family or "ipv4")
+	if family ~= "ipv4" and family ~= "ipv6" then family = "ipv4" end
+	local iface = pick_iface("")
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	return wapp_ok(iface, family .. "_proxy_arp_list")
+end
+
+-- DPP wrappers: every subcommand is literal + validated params only
+local function dpp_run(subcmd)
+	local iface = pick_iface("")
+	if not iface then return { ok = false, error = "no wifi iface" } end
+	return wapp_ok(iface, "dpp " .. subcmd)
+end
+
+local function dpp_qr_code(args)
+	args = args or {}
+	local uri = v_text(args.uri)
+	if not uri then return { ok = false, error = "DPP URI 缺失或含非法字符" } end
+	return dpp_run("dpp_qr_code " .. q(uri))
+end
+
+local function dpp_bootstrap_gen(args)
+	args = args or {}
+	local cmd = "dpp_bootstrap_gen type=qrcode"
+	local function add(opt, val)
+		local v = args[opt]
+		if v ~= nil and v ~= "" then
+			if v:find("%s") then return nil end
+			if not v_text(v) then return nil end
+			cmd = cmd .. " " .. opt .. "=" .. v
+		end
+		return true
+	end
+	for _, opt in ipairs({ "chan", "mac", "info", "curve", "key" }) do
+		if not add(opt, args[opt]) then
+			return { ok = false, error = opt .. " 含非法字符或空格" }
+		end
+	end
+	return dpp_run(cmd)
+end
+
+local function dpp_bootstrap_by_id(subcmd, args)
+	args = args or {}
+	local id = v_id(args.id)
+	if not id then return { ok = false, error = "无效的 bootstrap id" } end
+	return dpp_run(subcmd .. " " .. id)
+end
+
+local function dpp_listen(args)
+	args = args or {}
+	local freq = v_uint(args.freq) or "2412"
+	return dpp_run("dpp_listen " .. freq)
+end
+
+local function dpp_configurator_add(args)
+	args = args or {}
+	local cmd = "dpp_configurator_add"
+	for _, opt in ipairs({ "curve", "key" }) do
+		local v = args[opt]
+		if v ~= nil and v ~= "" then
+			if v:find("%s") then return { ok = false, error = opt .. " 含非法字符或空格" } end
+			local t = v_text(v)
+			if not t then return { ok = false, error = opt .. " 含非法字符" } end
+			cmd = cmd .. " " .. opt .. "=" .. t
+		end
+	end
+	return dpp_run(cmd)
+end
+
+local function dpp_configurator_by_id(subcmd, args)
+	args = args or {}
+	local id = v_id(args.id)
+	if not id then return { ok = false, error = "无效的 configurator id" } end
+	return dpp_run(subcmd .. " " .. id)
+end
+
+local function dpp_auth_init(args)
+	args = args or {}
+	local peer = v_uint(args.peer)
+	if not peer then return { ok = false, error = "无效的 peer id" } end
+	local cmd = "dpp_auth_init peer=" .. peer
+	if args.own ~= nil and args.own ~= "" then
+		local own = v_uint(args.own)
+		if not own then return { ok = false, error = "无效的 own id" } end
+		cmd = cmd .. " own=" .. own
+	end
+	return dpp_run(cmd)
+end
+
+local function dpp_pkex_add(args)
+	args = args or {}
+	local code = v_text(args.code)
+	if not code then return { ok = false, error = "PKEX code 缺失或含非法字符" } end
+	return dpp_run("dpp_pkex_add " .. code)
+end
+
+local function dpp_pkex_remove(args)
+	args = args or {}
+	local id = v_id(args.id)
+	if not id then return { ok = false, error = "无效的 PKEX id" } end
+	return dpp_run("dpp_pkex_remove " .. id)
+end
+
+local function dpp_chirp_ch_en(args)
+	args = args or {}
+	local enable = (tostring(args.enable or "") == "0") and "0" or "1"
+	local cmd = "dpp_chirp_ch_en " .. enable
+	local list = v_text(args.chan_list)
+	if list then cmd = cmd .. " " .. list end
+	return dpp_run(cmd)
+end
+
+local function dpp_onboard_type(args)
+	args = args or {}
+	local t = v_text(args.type)
+	if not t then return { ok = false, error = "onboard type 缺失或含非法字符" } end
+	return dpp_run("dpp_onboard_type " .. t)
+end
+
+local function dpp_dev_set_cfg(args)
+	args = args or {}
+	local path = v_text(args.path)
+	if not path then return { ok = false, error = "路径缺失或含非法字符" } end
+	return dpp_run("dpp_dev_set_cfg " .. path)
+end
+
+local function dpp_set_bh_wifi()
+	local r = dpp_run("dpp_set_bh_wifi")
+	if not r.ok then return r end
+	return apply_kv("1905d.cfg", { bh_type = "wifi" })
+end
+
+-- reset MAP keys in a scope back to their defaults (snapshot + rollback)
+local function reset(args)
+	args = args or {}
+	local scope = tostring(args.scope or "")
+	local per_file = {}
+	for _, id in ipairs(FIELD_IDS) do
+		local f = FIELDS[id]
+		if f and f.d ~= nil then
+			local g = FIELD_GROUPS[id] or ""
+			if scope == "all" or g == scope then
+				per_file[f.file] = per_file[f.file] or {}
+				per_file[f.file][f.key] = f.d
+			end
+		end
+	end
+	if next(per_file) == nil then
+		return { ok = false, error = "没有可重置的字段（scope: " .. (scope == "" and "空" or scope) .. "）" }
+	end
+	local originals = {}
+	for file in pairs(per_file) do
+		local t = file_text(file)
+		if not t then return { ok = false, error = "配置文件缺失: " .. file } end
+		originals[file] = t
+	end
+	local written = {}
+	for file, updates in pairs(per_file) do
+		local r = apply_kv(file, updates)
+		if not r.ok then
+			for _, f2 in ipairs(written) do
+				write_atomic(MAP_DIR .. "/" .. f2, originals[f2])
+			end
+			return r
+		end
+		written[#written + 1] = file
+	end
+	local okr, results = reload_services()
+	if not okr then
+		for _, f2 in ipairs(written) do
+			write_atomic(MAP_DIR .. "/" .. f2, originals[f2])
+		end
+		return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
+	end
+	return { ok = true, scope = scope, files = written }
+end
+
 -- compatibility wrappers (map.js legacy calls)
 local function set_role(a) return set_field({ field = "role", value = a and a.value, reload = a and a.reload }) end
 local function set_backhaul(a) return set_field({ field = "backhaul", value = a and a.value, reload = a and a.reload }) end
@@ -674,6 +1304,48 @@ local methods = {
 	set_role = { value = "", reload = false },
 	set_backhaul = { value = "", reload = false },
 	set_policy = { value = "", reload = false },
+	bh_status = {},
+	bh_scan = { iface = "" },
+	bh_connect = { iface = "", ssid = "", auth = "", enc = "", key = "" },
+	bh_disconnect = { iface = "" },
+	pbc_trigger = { iface = "" },
+	set_bh_type = { type = "" },
+	wapp_reload = { iface = "" },
+	wapp_version = { iface = "" },
+	steer_sta = { iface = "", mac = "" },
+	btm_req = { mac = "", ess_imm = "", timer = "", url = "" },
+	wnm_req = { iface = "", mac = "", url = "" },
+	wnm_req2 = { iface = "", mac = "", code = "", delay = "", url = "" },
+	qos_map = { iface = "", mac = "", dscp_exception = "", dscp_range = "" },
+	proxy_arp_list = { family = "" },
+	reset = { scope = "" },
+	dpp_qr_code = { uri = "" },
+	dpp_bootstrap_gen = { chan = "", mac = "", info = "", curve = "", key = "" },
+	dpp_bootstrap_info = { id = "" },
+	dpp_bootstrap_get_uri = { id = "" },
+	dpp_bootstrap_remove = { id = "" },
+	dpp_start = {},
+	dpp_listen = { freq = "" },
+	dpp_stop_listen = {},
+	dpp_configurator_add = { curve = "", key = "" },
+	dpp_configurator_remove = { id = "" },
+	dpp_configurator_sign = { id = "" },
+	dpp_configurator_get_key = { id = "" },
+	dpp_auth_init = { peer = "", own = "" },
+	dpp_controller_start = {},
+	dpp_controller_stop = {},
+	dpp_pkex_add = { code = "" },
+	dpp_pkex_remove = { id = "" },
+	dpp_chirp_ch_en = { enable = "", chan_list = "" },
+	dpp_chirp_notif = {},
+	dpp_onboard_type = { type = "" },
+	dpp_presence_enable = {},
+	dpp_reconfig_enable = {},
+	dpp_cce_indication_start = {},
+	dpp_dev_set_cfg = { path = "" },
+	dpp_set_bh_wifi = {},
+	dpp_reset_config = {},
+	dpp_reset_mapd_user_config = {},
 }
 
 -- rpcd exec plugin contract (openwrt-24.10 rpcd plugin.c):
@@ -690,6 +1362,48 @@ local function dispatch(m, a)
 	if m == "set_role" then return set_role(a) end
 	if m == "set_backhaul" then return set_backhaul(a) end
 	if m == "set_policy" then return set_policy(a) end
+	if m == "bh_status" then return bh_status() end
+	if m == "bh_scan" then return bh_scan(a) end
+	if m == "bh_connect" then return bh_connect(a) end
+	if m == "bh_disconnect" then return bh_disconnect(a) end
+	if m == "pbc_trigger" then return pbc_trigger(a) end
+	if m == "set_bh_type" then return set_bh_type(a) end
+	if m == "wapp_reload" then return wapp_reload(a) end
+	if m == "wapp_version" then return wapp_version(a) end
+	if m == "steer_sta" then return steer_sta(a) end
+	if m == "btm_req" then return btm_req(a) end
+	if m == "wnm_req" then return wnm_req(a) end
+	if m == "wnm_req2" then return wnm_req2(a) end
+	if m == "qos_map" then return qos_map(a) end
+	if m == "proxy_arp_list" then return proxy_arp_list(a) end
+	if m == "reset" then return reset(a) end
+	if m == "dpp_qr_code" then return dpp_qr_code(a) end
+	if m == "dpp_bootstrap_gen" then return dpp_bootstrap_gen(a) end
+	if m == "dpp_bootstrap_info" then return dpp_bootstrap_by_id("dpp_bootstrap_info", a) end
+	if m == "dpp_bootstrap_get_uri" then return dpp_bootstrap_by_id("dpp_bootstrap_get_uri", a) end
+	if m == "dpp_bootstrap_remove" then return dpp_bootstrap_by_id("dpp_bootstrap_remove", a) end
+	if m == "dpp_start" then return dpp_run("dpp_start") end
+	if m == "dpp_listen" then return dpp_listen(a) end
+	if m == "dpp_stop_listen" then return dpp_run("dpp_stop_listen") end
+	if m == "dpp_configurator_add" then return dpp_configurator_add(a) end
+	if m == "dpp_configurator_remove" then return dpp_configurator_by_id("dpp_configurator_remove", a) end
+	if m == "dpp_configurator_sign" then return dpp_configurator_by_id("dpp_configurator_sign", a) end
+	if m == "dpp_configurator_get_key" then return dpp_configurator_by_id("dpp_configurator_get_key", a) end
+	if m == "dpp_auth_init" then return dpp_auth_init(a) end
+	if m == "dpp_controller_start" then return dpp_run("dpp_controller_start") end
+	if m == "dpp_controller_stop" then return dpp_run("dpp_controller_stop") end
+	if m == "dpp_pkex_add" then return dpp_pkex_add(a) end
+	if m == "dpp_pkex_remove" then return dpp_pkex_remove(a) end
+	if m == "dpp_chirp_ch_en" then return dpp_chirp_ch_en(a) end
+	if m == "dpp_chirp_notif" then return dpp_run("dpp_chirp_notif") end
+	if m == "dpp_onboard_type" then return dpp_onboard_type(a) end
+	if m == "dpp_presence_enable" then return dpp_run("dpp_presence_enable") end
+	if m == "dpp_reconfig_enable" then return dpp_run("dpp_reconfig_enable") end
+	if m == "dpp_cce_indication_start" then return dpp_run("dpp_cce_indication_start") end
+	if m == "dpp_dev_set_cfg" then return dpp_dev_set_cfg(a) end
+	if m == "dpp_set_bh_wifi" then return dpp_set_bh_wifi() end
+	if m == "dpp_reset_config" then return dpp_run("dpp_reset_dpp_config_file") end
+	if m == "dpp_reset_mapd_user_config" then return dpp_run("dpp_reset_mapd_user_config_file") end
 	return { ok = false, error = "unknown method" }
 end
 local cmd = arg[1]

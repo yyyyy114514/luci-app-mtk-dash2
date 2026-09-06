@@ -8,7 +8,20 @@
     },
     "write": {
       "ubus": {
-        "map-easymesh": ["set_role", "set_backhaul", "set_policy", "set_field", "reload"]
+        "map-easymesh": [
+          "set_role", "set_backhaul", "set_policy", "set_field", "reload",
+          "bh_status", "bh_scan", "bh_connect", "bh_disconnect",
+          "pbc_trigger", "set_bh_type", "wapp_reload", "wapp_version", "steer_sta",
+          "btm_req", "wnm_req", "wnm_req2", "qos_map", "proxy_arp_list", "reset",
+          "dpp_qr_code", "dpp_bootstrap_gen", "dpp_bootstrap_info", "dpp_bootstrap_get_uri", "dpp_bootstrap_remove",
+          "dpp_start", "dpp_listen", "dpp_stop_listen",
+          "dpp_configurator_add", "dpp_configurator_remove", "dpp_configurator_sign", "dpp_configurator_get_key",
+          "dpp_auth_init", "dpp_controller_start", "dpp_controller_stop",
+          "dpp_pkex_add", "dpp_pkex_remove",
+          "dpp_chirp_ch_en", "dpp_chirp_notif",
+          "dpp_onboard_type", "dpp_presence_enable", "dpp_reconfig_enable", "dpp_cce_indication_start",
+          "dpp_dev_set_cfg", "dpp_set_bh_wifi", "dpp_reset_config", "dpp_reset_mapd_user_config"
+        ]
       }
     }
   }
