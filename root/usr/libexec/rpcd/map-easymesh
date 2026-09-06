@@ -6,6 +6,7 @@ local json = require "luci.jsonc"
 local fs = require "nixio.fs"
 
 local MAP_DIR = "/etc/map"
+local FILE_PATHS = { ["wapp_ap_ra0.conf"] = "/etc/wapp_ap_ra0.conf" }
 local SERVICES = { "mapd", "wapp", "bs20" }
 local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }
 local SENSITIVE = { "key", "pass", "secret", "psk", "password", "cred", "alid" }
@@ -266,6 +267,83 @@ local FIELDS = {
 		type = "enum", map = { R1 = "R1", R2 = "R2" }, labels = { R1 = "R1", R2 = "R2" }, enum_sort = { "R1", "R2" },
 		d = "R1",
 	},
+	mode = {
+		file = "mapd_cfg", key = "mode", label = "运行模式",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", ["2"] = "2" },
+		labels = { ["0"] = "0", ["1"] = "1", ["2"] = "2" },
+		enum_sort = { "0", "1", "2" },
+		optional = true, d = "0",
+	},
+	client_mac = { file = "mapd_cfg", key = "client_mac", label = "流量分离客户端MAC", type = "mac", optional = true, d = "" },
+	["dpp-uri"] = { file = "mapd_cfg", key = "dpp-uri", label = "DPP URI", type = "string", optional = true, d = "" },
+	dst_ip = { file = "mapd_cfg", key = "dst_ip", label = "目的IP", type = "string", optional = true, d = "" },
+	dst_port = { file = "mapd_cfg", key = "dst_port", label = "目的端口", type = "string", optional = true, d = "" },
+	src_ip = { file = "mapd_cfg", key = "src_ip", label = "源IP", type = "string", optional = true, d = "" },
+	srcc_port = { file = "mapd_cfg", key = "srcc_port", label = "源端口", type = "string", optional = true, d = "" },
+	index = { file = "mapd_cfg", key = "index", label = "索引", type = "int", min = 1, max = 255, optional = true, d = "1" },
+	name = { file = "mapd_cfg", key = "name", label = "名称", type = "string", optional = true, d = "" },
+	priority = { file = "mapd_cfg", key = "priority", label = "优先级", type = "int", min = 1, max = 255, optional = true, d = "1" },
+	protocol = { file = "mapd_cfg", key = "protocol", label = "协议", type = "string", optional = true, d = "" },
+	ssid = { file = "mapd_cfg", key = "ssid", label = "SSID", type = "string", optional = true, d = "" },
+	interface = { file = "wapp_ap_ra0.conf", key = "interface", label = "interface", type = "string", optional = true, d = "ra0" },
+	interworking = { file = "wapp_ap_ra0.conf", key = "interworking", label = "interworking", type = "string", optional = true, d = "1" },
+	access_network_type = { file = "wapp_ap_ra0.conf", key = "access_network_type", label = "access_network_type", type = "string", optional = true, d = "0" },
+	internet = { file = "wapp_ap_ra0.conf", key = "internet", label = "internet", type = "string", optional = true, d = "0" },
+	venue_group = { file = "wapp_ap_ra0.conf", key = "venue_group", label = "venue_group", type = "string", optional = true, d = "0" },
+	venue_type = { file = "wapp_ap_ra0.conf", key = "venue_type", label = "venue_type", type = "string", optional = true, d = "8" },
+	anqp_query = { file = "wapp_ap_ra0.conf", key = "anqp_query", label = "anqp_query", type = "string", optional = true, d = "1" },
+	mih_support = { file = "wapp_ap_ra0.conf", key = "mih_support", label = "mih_support", type = "string", optional = true, d = "0" },
+	hessid = { file = "wapp_ap_ra0.conf", key = "hessid", label = "hessid", type = "string", optional = true, d = "bssid" },
+	roaming_consortium_oi = { file = "wapp_ap_ra0.conf", key = "roaming_consortium_oi", label = "roaming_consortium_oi", type = "string", optional = true, d = "50-6F-9A,00-1B-C5-04-BD" },
+	advertisement_proto_id = { file = "wapp_ap_ra0.conf", key = "advertisement_proto_id", label = "advertisement_proto_id", type = "string", optional = true, d = "0" },
+	domain_name = { file = "wapp_ap_ra0.conf", key = "domain_name", label = "domain_name", type = "string", optional = true, d = "wi-fi.org" },
+	network_auth_type = { file = "wapp_ap_ra0.conf", key = "network_auth_type", label = "network_auth_type", type = "string", optional = true, d = "1" },
+	ipv4_type = { file = "wapp_ap_ra0.conf", key = "ipv4_type", label = "ipv4_type", type = "string", optional = true, d = "3" },
+	ipv6_type = { file = "wapp_ap_ra0.conf", key = "ipv6_type", label = "ipv6_type", type = "string", optional = true, d = "0" },
+	anqp_domain_id = { file = "wapp_ap_ra0.conf", key = "anqp_domain_id", label = "anqp_domain_id", type = "string", optional = true, d = "1" },
+	icon_metadata = { file = "wapp_ap_ra0.conf", key = "icon_metadata", label = "icon_metadata", type = "string", optional = true, d = "160:76:eng:image/png:icon_red_eng.svg" },
+	t_c_filename = { file = "wapp_ap_ra0.conf", key = "t_c_filename", label = "t_c_filename", type = "string", optional = true, d = "0" },
+	t_c_server_url = { file = "wapp_ap_ra0.conf", key = "t_c_server_url", label = "t_c_server_url", type = "string", optional = true, d = "https://tandc-server.r2m-testbed.wi-fi.org" },
+	t_c_timestamp = { file = "wapp_ap_ra0.conf", key = "t_c_timestamp", label = "t_c_timestamp", type = "string", optional = true, d = "0" },
+	osu_providers_nai_list = { file = "wapp_ap_ra0.conf", key = "osu_providers_nai_list", label = "osu_providers_nai_list", type = "string", optional = true, d = "21,anonymous@hotspot.net" },
+	anonymous_nai = { file = "wapp_ap_ra0.conf", key = "anonymous_nai", label = "anonymous_nai", type = "string", optional = true, d = "n/a" },
+	osu_interface = { file = "wapp_ap_ra0.conf", key = "osu_interface", label = "osu_interface", type = "string", optional = true, d = "ra1" },
+	legacy_osu = { file = "wapp_ap_ra0.conf", key = "legacy_osu", label = "legacy_osu", type = "string", optional = true, d = "2" },
+	operating_class = { file = "wapp_ap_ra0.conf", key = "operating_class", label = "operating_class", type = "string", optional = true, d = "81,115" },
+	preferred_candi_list_included = { file = "wapp_ap_ra0.conf", key = "preferred_candi_list_included", label = "preferred_candi_list_included", type = "string", optional = true, d = "0" },
+	abridged = { file = "wapp_ap_ra0.conf", key = "abridged", label = "abridged", type = "string", optional = true, d = "0" },
+	disassociation_imminent = { file = "wapp_ap_ra0.conf", key = "disassociation_imminent", label = "disassociation_imminent", type = "string", optional = true, d = "0" },
+	bss_termination_included = { file = "wapp_ap_ra0.conf", key = "bss_termination_included", label = "bss_termination_included", type = "string", optional = true, d = "0" },
+	ess_disassociation_imminent = { file = "wapp_ap_ra0.conf", key = "ess_disassociation_imminent", label = "ess_disassociation_imminent", type = "string", optional = true, d = "1" },
+	disassociation_timer = { file = "wapp_ap_ra0.conf", key = "disassociation_timer", label = "disassociation_timer", type = "string", optional = true, d = "100" },
+	validity_interval = { file = "wapp_ap_ra0.conf", key = "validity_interval", label = "validity_interval", type = "string", optional = true, d = "200" },
+	bss_termination_duration = { file = "wapp_ap_ra0.conf", key = "bss_termination_duration", label = "bss_termination_duration", type = "string", optional = true, d = "n/a" },
+	session_information_url = { file = "wapp_ap_ra0.conf", key = "session_information_url", label = "session_information_url", type = "string", optional = true, d = "remediation-server.R2-testbed.wi-fi.org" },
+	bss_transisition_candi_list_preferences = { file = "wapp_ap_ra0.conf", key = "bss_transisition_candi_list_preferences", label = "bss_transisition_candi_list_preferences", type = "string", optional = true, d = "n/a" },
+	timezone = { file = "wapp_ap_ra0.conf", key = "timezone", label = "timezone", type = "string", optional = true, d = "UTC8" },
+	dgaf_disabled = { file = "wapp_ap_ra0.conf", key = "dgaf_disabled", label = "dgaf_disabled", type = "string", optional = true, d = "0" },
+	proxy_arp = { file = "wapp_ap_ra0.conf", key = "proxy_arp", label = "proxy_arp", type = "string", optional = true, d = "0" },
+	l2_filter = { file = "wapp_ap_ra0.conf", key = "l2_filter", label = "l2_filter", type = "string", optional = true, d = "0" },
+	icmpv4_deny = { file = "wapp_ap_ra0.conf", key = "icmpv4_deny", label = "icmpv4_deny", type = "string", optional = true, d = "0" },
+	p2p_cross_connect_permitted = { file = "wapp_ap_ra0.conf", key = "p2p_cross_connect_permitted", label = "p2p_cross_connect_permitted", type = "string", optional = true, d = "0" },
+	mmpdu_size = { file = "wapp_ap_ra0.conf", key = "mmpdu_size", label = "mmpdu_size", type = "string", optional = true, d = "1024" },
+	external_anqp_server_test = { file = "wapp_ap_ra0.conf", key = "external_anqp_server_test", label = "external_anqp_server_test", type = "string", optional = true, d = "0" },
+	gas_cb_delay = { file = "wapp_ap_ra0.conf", key = "gas_cb_delay", label = "gas_cb_delay", type = "string", optional = true, d = "1" },
+	hs2_openmode_test = { file = "wapp_ap_ra0.conf", key = "hs2_openmode_test", label = "hs2_openmode_test", type = "string", optional = true, d = "0" },
+	icon_path = { file = "wapp_ap_ra0.conf", key = "icon_path", label = "icon_path", type = "string", optional = true, d = "/etc/" },
+	qosmap = { file = "wapp_ap_ra0.conf", key = "qosmap", label = "qosmap", type = "string", optional = true, d = "1" },
+	dscp_range = { file = "wapp_ap_ra0.conf", key = "dscp_range", label = "dscp_range", type = "string", optional = true, d = "08:15:0:7:255:255:16:31:32:39:255:255:40:47:255:255" },
+	dscp_exception = { file = "wapp_ap_ra0.conf", key = "dscp_exception", label = "dscp_exception", type = "string", optional = true, d = "53:2:22:6" },
+	qload_test = { file = "wapp_ap_ra0.conf", key = "qload_test", label = "qload_test", type = "string", optional = true, d = "0" },
+	qload_cu = { file = "wapp_ap_ra0.conf", key = "qload_cu", label = "qload_cu", type = "string", optional = true, d = "50" },
+	qload_sta_cnt = { file = "wapp_ap_ra0.conf", key = "qload_sta_cnt", label = "qload_sta_cnt", type = "string", optional = true, d = "1" },
+	icon_tag = { file = "wapp_ap_ra0.conf", key = "icon_tag", label = "icon_tag", type = "string", optional = true, d = "1" },
+	mbo_ap_cdcp = { file = "wapp_ap_ra0.conf", key = "mbo_ap_cdcp", label = "mbo_ap_cdcp", type = "string", optional = true, d = "1" },
+	mbo_ap_assoc_disallow_reason = { file = "wapp_ap_ra0.conf", key = "mbo_ap_assoc_disallow_reason", label = "mbo_ap_assoc_disallow_reason", type = "string", optional = true, d = "0" },
+	mbo_ap_assoc_retry_delay = { file = "wapp_ap_ra0.conf", key = "mbo_ap_assoc_retry_delay", label = "mbo_ap_assoc_retry_delay", type = "string", optional = true, d = "0" },
+	mbo_ap_transition_reason_code = { file = "wapp_ap_ra0.conf", key = "mbo_ap_transition_reason_code", label = "mbo_ap_transition_reason_code", type = "string", optional = true, d = "0" },
+	mbo_ap_capability = { file = "wapp_ap_ra0.conf", key = "mbo_ap_capability", label = "mbo_ap_capability", type = "string", optional = true, d = "64" },
+	wan_metrics = { file = "wapp_ap_ra0.conf", key = "wan_metrics", label = "wan_metrics", type = "string", optional = true, d = "n/a" },
 }
 
 local FIELD_IDS = {
@@ -288,6 +366,17 @@ local FIELD_IDS = {
 	"chplan_edcca_th_2g", "chplan_edcca_th_5gl", "chplan_edcca_th_6g",
 	"chplan_obss_th_2g", "chplan_obss_th_5gl", "chplan_obss_th_6g",
 	"chplan_r2_metric_intv", "chplan_r2_min_score", "chplan_r2_mon_prohibit", "chplan_r2_mon_timeout",
+	"mode", "client_mac", "dpp-uri", "dst_ip", "dst_port", "src_ip", "srcc_port", "index", "name", "priority", "protocol", "ssid",
+	"interface", "interworking", "access_network_type", "internet", "venue_group", "venue_type", "anqp_query", "mih_support",
+	"hessid", "roaming_consortium_oi", "advertisement_proto_id", "domain_name", "network_auth_type", "ipv4_type", "ipv6_type",
+	"anqp_domain_id", "icon_metadata", "t_c_filename", "t_c_server_url", "t_c_timestamp", "osu_providers_nai_list",
+	"anonymous_nai", "osu_interface", "legacy_osu", "operating_class", "preferred_candi_list_included", "abridged",
+	"disassociation_imminent", "bss_termination_included", "ess_disassociation_imminent", "disassociation_timer",
+	"validity_interval", "bss_termination_duration", "session_information_url", "bss_transisition_candi_list_preferences",
+	"timezone", "dgaf_disabled", "proxy_arp", "l2_filter", "icmpv4_deny", "p2p_cross_connect_permitted", "mmpdu_size",
+	"external_anqp_server_test", "gas_cb_delay", "hs2_openmode_test", "icon_path", "qosmap", "dscp_range", "dscp_exception",
+	"qload_test", "qload_cu", "qload_sta_cnt", "icon_tag", "mbo_ap_cdcp", "mbo_ap_assoc_disallow_reason",
+	"mbo_ap_assoc_retry_delay", "mbo_ap_transition_reason_code", "mbo_ap_capability", "wan_metrics",
 }
 
 local function bin(name)
@@ -374,7 +463,7 @@ local function parse_file(text)
 end
 
 local function file_text(name)
-	local p = MAP_DIR .. "/" .. name
+	local p = FILE_PATHS[name] or (MAP_DIR .. "/" .. name)
 	local t = read(p)
 	if not t then return nil end
 	if t:find("\r") then return nil, "CRLF" end
@@ -453,8 +542,8 @@ end
 
 local function config()
 	local out = {}
-	for _, name in ipairs({ "mapd_cfg", "1905d.cfg" }) do
-		local path = MAP_DIR .. "/" .. name
+	for _, name in ipairs({ "mapd_cfg", "1905d.cfg", "wapp_ap_ra0.conf" }) do
+		local path = FILE_PATHS[name] or (MAP_DIR .. "/" .. name)
 		local text = read(path)
 		local e = { name = name, path = path, present = text ~= nil, fields = {} }
 		for _, ln in ipairs(parse_file(text or "")) do
@@ -575,8 +664,43 @@ local FIELD_GROUPS = {
 	chplan_r2_metric_intv = "信道规划", chplan_r2_min_score = "信道规划", chplan_r2_mon_prohibit = "信道规划", chplan_r2_mon_timeout = "信道规划",
 	de_serial = "设备信息", de_sw_ver = "设备信息", de_exec_env = "设备信息", de_chipset_vendor = "设备信息",
 	de_sta_event_path = "设备信息", lan_if = "设备信息", wan_if = "设备信息",
+	mode = "运行模式",
+	client_mac = "流量分离 (Traffic Separation)", ["dpp-uri"] = "流量分离 (Traffic Separation)",
+	dst_ip = "流量分离 (Traffic Separation)", dst_port = "流量分离 (Traffic Separation)",
+	src_ip = "流量分离 (Traffic Separation)", srcc_port = "流量分离 (Traffic Separation)",
+	index = "流量分离 (Traffic Separation)", name = "流量分离 (Traffic Separation)",
+	priority = "流量分离 (Traffic Separation)", protocol = "流量分离 (Traffic Separation)", ssid = "流量分离 (Traffic Separation)",
+	interface = "Hotspot 2.0 (Passpoint)", interworking = "Hotspot 2.0 (Passpoint)",
+	access_network_type = "Hotspot 2.0 (Passpoint)", internet = "Hotspot 2.0 (Passpoint)",
+	venue_group = "Hotspot 2.0 (Passpoint)", venue_type = "Hotspot 2.0 (Passpoint)",
+	anqp_query = "Hotspot 2.0 (Passpoint)", mih_support = "Hotspot 2.0 (Passpoint)",
+	hessid = "Hotspot 2.0 (Passpoint)", roaming_consortium_oi = "Hotspot 2.0 (Passpoint)",
+	advertisement_proto_id = "Hotspot 2.0 (Passpoint)", domain_name = "Hotspot 2.0 (Passpoint)",
+	network_auth_type = "Hotspot 2.0 (Passpoint)", ipv4_type = "Hotspot 2.0 (Passpoint)",
+	ipv6_type = "Hotspot 2.0 (Passpoint)", anqp_domain_id = "Hotspot 2.0 (Passpoint)",
+	icon_metadata = "Hotspot 2.0 (Passpoint)",
+	t_c_filename = "Hotspot 2.0 (Passpoint)", t_c_server_url = "Hotspot 2.0 (Passpoint)", t_c_timestamp = "Hotspot 2.0 (Passpoint)",
+	osu_providers_nai_list = "Hotspot 2.0 (Passpoint)", anonymous_nai = "Hotspot 2.0 (Passpoint)",
+	osu_interface = "Hotspot 2.0 (Passpoint)", legacy_osu = "Hotspot 2.0 (Passpoint)",
+	operating_class = "Hotspot 2.0 (Passpoint)", preferred_candi_list_included = "Hotspot 2.0 (Passpoint)",
+	abridged = "Hotspot 2.0 (Passpoint)", disassociation_imminent = "Hotspot 2.0 (Passpoint)",
+	bss_termination_included = "Hotspot 2.0 (Passpoint)", ess_disassociation_imminent = "Hotspot 2.0 (Passpoint)",
+	disassociation_timer = "Hotspot 2.0 (Passpoint)", validity_interval = "Hotspot 2.0 (Passpoint)",
+	bss_termination_duration = "Hotspot 2.0 (Passpoint)", session_information_url = "Hotspot 2.0 (Passpoint)",
+	bss_transisition_candi_list_preferences = "Hotspot 2.0 (Passpoint)", timezone = "Hotspot 2.0 (Passpoint)",
+	dgaf_disabled = "Hotspot 2.0 (Passpoint)", proxy_arp = "Hotspot 2.0 (Passpoint)",
+	l2_filter = "Hotspot 2.0 (Passpoint)", icmpv4_deny = "Hotspot 2.0 (Passpoint)",
+	p2p_cross_connect_permitted = "Hotspot 2.0 (Passpoint)", mmpdu_size = "Hotspot 2.0 (Passpoint)",
+	external_anqp_server_test = "Hotspot 2.0 (Passpoint)", gas_cb_delay = "Hotspot 2.0 (Passpoint)",
+	hs2_openmode_test = "Hotspot 2.0 (Passpoint)", icon_path = "Hotspot 2.0 (Passpoint)",
+	qosmap = "Hotspot 2.0 (Passpoint)", dscp_range = "Hotspot 2.0 (Passpoint)", dscp_exception = "Hotspot 2.0 (Passpoint)",
+	qload_test = "Hotspot 2.0 (Passpoint)", qload_cu = "Hotspot 2.0 (Passpoint)", qload_sta_cnt = "Hotspot 2.0 (Passpoint)",
+	icon_tag = "Hotspot 2.0 (Passpoint)",
+	mbo_ap_cdcp = "Hotspot 2.0 (Passpoint)", mbo_ap_assoc_disallow_reason = "Hotspot 2.0 (Passpoint)",
+	mbo_ap_assoc_retry_delay = "Hotspot 2.0 (Passpoint)", mbo_ap_transition_reason_code = "Hotspot 2.0 (Passpoint)",
+	mbo_ap_capability = "Hotspot 2.0 (Passpoint)", wan_metrics = "Hotspot 2.0 (Passpoint)",
 }
-local GROUP_ORDER = { "角色与回程", "回程配置 (BhProfile)", "回程优先级", "漫游与引导", "信道规划", "网络优化", "设备信息", "其他 MAP 参数", "1905d 链路配置" }
+local GROUP_ORDER = { "角色与回程", "回程配置 (BhProfile)", "回程优先级", "漫游与引导", "信道规划", "网络优化", "设备信息", "其他 MAP 参数", "1905d 链路配置", "运行模式", "流量分离 (Traffic Separation)", "Hotspot 2.0 (Passpoint)" }
 
 local function fields_meta()
 	local meta = {}
@@ -638,7 +762,7 @@ local function set_field(args)
 	local id = args.field
 	local f = id and FIELDS[id]
 	if not f then return { ok = false, error = "未知字段: " .. tostring(id) } end
-	local path = MAP_DIR .. "/" .. f.file
+	local path = FILE_PATHS[f.file] or (MAP_DIR .. "/" .. f.file)
 	local text = read(path)
 	if not text then return { ok = false, error = "配置文件缺失: " .. path } end
 	if text:find("\r") then return { ok = false, error = "配置文件含 CRLF 换行，拒绝改写" } end
@@ -819,7 +943,7 @@ end
 
 -- atomic multi-key update of one MAP kv file with snapshot + rollback
 local function apply_kv(file, updates)
-	local path = MAP_DIR .. "/" .. file
+	local path = FILE_PATHS[file] or (MAP_DIR .. "/" .. file)
 	local text = read(path)
 	if not text then return { ok = false, error = "配置文件缺失: " .. path } end
 	if text:find("\r") then return { ok = false, error = "配置文件含 CRLF 换行，拒绝改写" } end
@@ -1268,7 +1392,7 @@ local function reset(args)
 		local r = apply_kv(file, updates)
 		if not r.ok then
 			for _, f2 in ipairs(written) do
-				write_atomic(MAP_DIR .. "/" .. f2, originals[f2])
+				write_atomic(FILE_PATHS[f2] or (MAP_DIR .. "/" .. f2), originals[f2])
 			end
 			return r
 		end
@@ -1277,7 +1401,7 @@ local function reset(args)
 	local okr, results = reload_services()
 	if not okr then
 		for _, f2 in ipairs(written) do
-			write_atomic(MAP_DIR .. "/" .. f2, originals[f2])
+			write_atomic(FILE_PATHS[f2] or (MAP_DIR .. "/" .. f2), originals[f2])
 		end
 		return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
 	end

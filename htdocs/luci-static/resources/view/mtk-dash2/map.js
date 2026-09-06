@@ -387,7 +387,7 @@ return view.extend({
 		}}, [_('发送引导')]);
 
 		var resetSel = E('select', { 'class': 'cbi-input-select' });
-		['角色与回程', '回程配置 (BhProfile)', '回程优先级', '漫游与引导', '信道规划', '网络优化', '其他 MAP 参数', '1905d 链路配置', 'all'].forEach(function(s) {
+		['角色与回程', '回程配置 (BhProfile)', '回程优先级', '漫游与引导', '信道规划', '网络优化', '设备信息', '其他 MAP 参数', '1905d 链路配置', '运行模式', '流量分离 (Traffic Separation)', 'Hotspot 2.0 (Passpoint)', 'all'].forEach(function(s) {
 			resetSel.appendChild(E('option', { 'value': s }, [s === 'all' ? _('全部重置 (all)') : _(s)]));
 		});
 		var resetBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function(ev) {
