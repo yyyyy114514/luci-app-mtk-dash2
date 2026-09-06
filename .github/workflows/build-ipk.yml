@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   SDK_VERSION: 24.10.4
@@ -126,6 +126,21 @@ jobs:
           name: luci-app-mtk-dash2-${{ inputs.version }}
           if-no-files-found: error
           path: openwrt/bin/packages/**/luci-app-mtk-dash2_*.ipk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ inputs.version }}
+          name: luci-app-mtk-dash2 v${{ inputs.version }}
+          body: |
+            发布 luci-app-mtk-dash2 v${{ inputs.version }}。
+            本 IPK 基于 ImmortalWrt ${{ env.SDK_VERSION }} SDK（${{ env.SDK_TARGET }}）构建，
+            由 GitHub Actions 工作流自动编译生成。
+            源码地址：https://github.com/${{ github.repository }}
+          files: openwrt/bin/packages/**/luci-app-mtk-dash2_*.ipk
+          fail_on_unmatched_files: true
 
       - name: Trim SDK cache
         if: always()
