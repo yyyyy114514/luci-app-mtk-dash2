@@ -10,6 +10,7 @@ local SERVICES = { "mapd", "wapp", "bs20" }
 local BIN_DIRS = { "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/libexec" }
 local SENSITIVE = { "key", "pass", "secret", "psk", "password", "cred", "alid" }
 local DIRTY = "[%z\1-\8\11\12\14-\31\127]"
+local REDACTED = "__mtk_redacted__"
 
 -- Field specs verified against mtwifi-cfg wapp/mapd_cfg and wapp/1905d.cfg
 -- (padavanonly/immortalwrt-mt798x-6.6, openwrt-24.10-6.6 branch).
@@ -18,11 +19,13 @@ local FIELDS = {
 		file = "mapd_cfg", key = "DeviceRole", label = "设备角色",
 		type = "enum", map = { agent = "0", controller = "1", both = "2", ["0"] = "0", ["1"] = "1", ["2"] = "2" },
 		labels = { ["0"] = "Agent", ["1"] = "Controller", ["2"] = "Controller+Agent" },
+		enum_sort = { "0", "1", "2" },
 	},
 	backhaul = {
 		file = "1905d.cfg", key = "bh_type", label = "回程类型",
 		type = "enum", map = { eth = "eth", ethernet = "eth", wifi = "wifi", wireless = "wifi" },
 		labels = { eth = "以太网优先", wifi = "无线回程" },
+		enum_sort = { "eth", "wifi" },
 	},
 	steer = {
 		file = "mapd_cfg", key = "SteerEnable", label = "频段引导 (Steering)",
@@ -96,6 +99,123 @@ local FIELDS = {
 		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel5GH", label = "首选信道 5G-高",
 		type = "int", min = 100, max = 177,
 	},
+	pref_ch_6g = {
+		file = "mapd_cfg", key = "ChPlanningUserPreferredChannel6G", label = "首选信道 6G",
+		type = "int", min = 1, max = 233,
+	},
+	chplan_r2 = {
+		file = "mapd_cfg", key = "ChPlanningEnableR2", label = "信道规划 R2",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	chplan_timeout = {
+		file = "mapd_cfg", key = "ChPlanningInitTimeout", label = "信道规划初始化超时 (s)",
+		type = "int", min = 10, max = 3600,
+	},
+	chplan_scan_valid = {
+		file = "mapd_cfg", key = "ChPlanningScanValidTime", label = "扫描结果有效时间 (s)",
+		type = "int", min = 60, max = 86400,
+	},
+	divergent_chplan = {
+		file = "mapd_cfg", key = "DivergentChPlanning", label = "分离式信道规划",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	bh_prio_2g = { file = "mapd_cfg", key = "BhPriority2G", label = "回程优先级 2G", type = "int", min = 0, max = 3 },
+	bh_prio_5gl = { file = "mapd_cfg", key = "BhPriority5GL", label = "回程优先级 5G-低", type = "int", min = 0, max = 3 },
+	bh_prio_5gh = { file = "mapd_cfg", key = "BhPriority5GH", label = "回程优先级 5G-高", type = "int", min = 0, max = 3 },
+	bh_prio_6g = { file = "mapd_cfg", key = "BhPriority6G", label = "回程优先级 6G", type = "int", min = 0, max = 3 },
+	bss_cfg_priority = {
+		file = "mapd_cfg", key = "bss_config_priority", label = "BSS 配置优先级",
+		type = "string",
+	},
+	lowrssi_edge_re = {
+		file = "mapd_cfg", key = "LowRSSIAPSteerEdge_RE", label = "低 RSSI 引导边缘 (RE)",
+		type = "int", min = 0, max = 100,
+	},
+	band_switch_time = {
+		file = "mapd_cfg", key = "BandSwitchTime", label = "频段切换时间",
+		type = "string",
+	},
+	dual_bh = {
+		file = "mapd_cfg", key = "DualBH", label = "双回程",
+		type = "string",
+	},
+	max_scan = {
+		file = "mapd_cfg", key = "MaxAllowedScan", label = "最大扫描次数",
+		type = "string",
+	},
+	third_party = {
+		file = "mapd_cfg", key = "ThirdPartyConnection", label = "第三方设备连接",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	role_detect_ext = {
+		file = "mapd_cfg", key = "role_detection_external", label = "外部角色检测",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	setpsc_6g = {
+		file = "mapd_cfg", key = "SetPSCChannel_6G", label = "6G PSC 信道",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	ntwk_boot_wait = { file = "mapd_cfg", key = "NtwrkOptBootupWaitTime", label = "网络优化启动等待 (s)", type = "int", min = 1, max = 600 },
+	ntwk_conn_wait = { file = "mapd_cfg", key = "NtwrkOptConnectWaitTime", label = "网络优化连接等待 (s)", type = "int", min = 1, max = 600 },
+	ntwk_disconn_wait = { file = "mapd_cfg", key = "NtwrkOptDisconnectWaitTime", label = "网络优化断开等待 (s)", type = "int", min = 1, max = 600 },
+	ntwk_period = { file = "mapd_cfg", key = "NtwrkOptPeriodicity", label = "网络优化周期 (s)", type = "int", min = 60, max = 86400 },
+	netopt_score_margin = { file = "mapd_cfg", key = "NetworkOptimizationScoreMargin", label = "网络优化评分余量", type = "int", min = 0, max = 1000 },
+	netopt_pref5g = {
+		file = "mapd_cfg", key = "NetworkOptPrefer5Gover2G", label = "优先 5G 优于 2G",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+	netopt_pref5g_retry = { file = "mapd_cfg", key = "NetworkOptPrefer5Gover2GRetryCnt", label = "5G 优先重试次数", type = "int", min = 0, max = 100 },
+	netopt_user_priority = { file = "mapd_cfg", key = "NetOptUserSetPriority", label = "用户优先级", type = "int", min = 0, max = 100 },
+	ntwk_data_collect = { file = "mapd_cfg", key = "NtwrkOptDataCollectionTime", label = "数据采集时间 (s)", type = "int", min = 1, max = 3600 },
+	ntwk_postcac = { file = "mapd_cfg", key = "NtwrkOptPostCACTriggerTime", label = "CAC 后触发时间 (s)", type = "int", min = 0, max = 600 },
+	cu_overload_2g = { file = "mapd_cfg", key = "CUOverloadTh_2G", label = "2G 信道占用过载阈值", type = "int", min = 1, max = 100 },
+	cu_overload_5gl = { file = "mapd_cfg", key = "CUOverloadTh_5G_L", label = "5G-低 信道占用过载阈值", type = "int", min = 1, max = 100 },
+	cu_overload_5gh = { file = "mapd_cfg", key = "CUOverloadTh_5G_H", label = "5G-高 信道占用过载阈值", type = "int", min = 1, max = 100 },
+	bh0_valid = { file = "mapd_cfg", key = "BhProfile0Valid", label = "回程配置 0 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
+	bh0_ssid = { file = "mapd_cfg", key = "BhProfile0Ssid", label = "回程 SSID 0", type = "string" },
+	bh0_auth = { file = "mapd_cfg", key = "BhProfile0AuthMode", label = "回程认证 0", type = "string" },
+	bh0_enc = { file = "mapd_cfg", key = "BhProfile0EncrypType", label = "回程加密 0", type = "string" },
+	bh0_key = { file = "mapd_cfg", key = "BhProfile0WpaPsk", label = "回程密钥 0", secret = true },
+	bh0_raid = { file = "mapd_cfg", key = "BhProfile0RaID", label = "回程射频 0", type = "string" },
+	bh1_valid = { file = "mapd_cfg", key = "BhProfile1Valid", label = "回程配置 1 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
+	bh1_ssid = { file = "mapd_cfg", key = "BhProfile1Ssid", label = "回程 SSID 1", type = "string" },
+	bh1_auth = { file = "mapd_cfg", key = "BhProfile1AuthMode", label = "回程认证 1", type = "string" },
+	bh1_enc = { file = "mapd_cfg", key = "BhProfile1EncrypType", label = "回程加密 1", type = "string" },
+	bh1_key = { file = "mapd_cfg", key = "BhProfile1WpaPsk", label = "回程密钥 1", secret = true },
+	bh1_raid = { file = "mapd_cfg", key = "BhProfile1RaID", label = "回程射频 1", type = "string" },
+	bh2_valid = { file = "mapd_cfg", key = "BhProfile2Valid", label = "回程配置 2 启用", type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" } },
+	bh2_ssid = { file = "mapd_cfg", key = "BhProfile2Ssid", label = "回程 SSID 2", type = "string" },
+	bh2_auth = { file = "mapd_cfg", key = "BhProfile2AuthMode", label = "回程认证 2", type = "string" },
+	bh2_enc = { file = "mapd_cfg", key = "BhProfile2EncrypType", label = "回程加密 2", type = "string" },
+	bh2_key = { file = "mapd_cfg", key = "BhProfile2WpaPsk", label = "回程密钥 2", secret = true },
+	bh2_raid = { file = "mapd_cfg", key = "BhProfile2RaID", label = "回程射频 2", type = "string" },
+	ctrl_alid = { file = "1905d.cfg", key = "map_controller_alid", label = "Controller ALID", type = "mac" },
+	agent_alid = { file = "1905d.cfg", key = "map_agent_alid", label = "Agent ALID", type = "mac" },
+	radio_band = { file = "1905d.cfg", key = "radio_band", label = "各射频频段", type = "string" },
+	br_inf = { file = "1905d.cfg", key = "br_inf", label = "桥接接口", type = "string" },
+	al_inf = { file = "1905d.cfg", key = "al_inf", label = "AL 接口", type = "string" },
+	eth_dev_name = { file = "1905d.cfg", key = "ethernet_dev_name", label = "以太网设备名（高级）", type = "string" },
+	decrypt_th = { file = "1905d.cfg", key = "decrypt_fail_threshold", label = "解密失败阈值", type = "int", min = 1, max = 100 },
+	gtk_rekey = { file = "1905d.cfg", key = "gtk_rekey_interval", label = "GTK 重键间隔 (s)", type = "int", min = 60, max = 86400 },
+	ob_wan_only = {
+		file = "1905d.cfg", key = "ob_wan_only", label = "仅 WAN 口以太网上线",
+		type = "enum", map = { ["0"] = "0", ["1"] = "1", disable = "0", enable = "1" },
+	},
+}
+
+local FIELD_IDS = {
+	"role", "backhaul", "steer", "auto_bh", "ch_plan", "central_steer", "dhcp_ctl", "non_map_ap", "quick_ch", "netopt",
+	"ap_steer_rssi", "force_roam_rssi", "scan_th_2g", "scan_th_5g", "scan_th_6g", "metric_intv", "bh_steer_timeout",
+	"pref_ch_2g", "pref_ch_5g", "pref_ch_5gh", "pref_ch_6g", "chplan_r2", "chplan_timeout", "chplan_scan_valid", "divergent_chplan",
+	"bh_prio_2g", "bh_prio_5gl", "bh_prio_5gh", "bh_prio_6g", "bss_cfg_priority", "lowrssi_edge_re", "band_switch_time",
+	"dual_bh", "max_scan", "third_party", "role_detect_ext", "setpsc_6g",
+	"ntwk_boot_wait", "ntwk_conn_wait", "ntwk_disconn_wait", "ntwk_period", "netopt_score_margin", "netopt_pref5g",
+	"netopt_pref5g_retry", "netopt_user_priority", "ntwrk_data_collect", "ntwrk_postcac",
+	"cu_overload_2g", "cu_overload_5gl", "cu_overload_5gh",
+	"bh0_valid", "bh0_ssid", "bh0_auth", "bh0_enc", "bh0_key", "bh0_raid",
+	"bh1_valid", "bh1_ssid", "bh1_auth", "bh1_enc", "bh1_key", "bh1_raid",
+	"bh2_valid", "bh2_ssid", "bh2_auth", "bh2_enc", "bh2_key", "bh2_raid",
+	"ctrl_alid", "agent_alid", "radio_band", "br_inf", "al_inf", "eth_dev_name", "decrypt_th", "gtk_rekey", "ob_wan_only",
 }
 
 local function bin(name)
@@ -316,10 +436,16 @@ local function field_state(id)
 			break
 		end
 	end
-	return {
+	local st = {
 		id = id, label = f.label, file = f.file, key = f.key,
 		present = cur ~= nil, value = cur and stripq(cur.value) or nil,
 	}
+	if f.secret then
+		st.secret = true
+		st.set = cur ~= nil and stripq(cur.value) ~= ""
+		st.value = nil
+	end
+	return st
 end
 
 local function status()
@@ -345,6 +471,62 @@ local function status()
 	}
 end
 
+local FIELD_GROUPS = {
+	role = "角色与回程", backhaul = "角色与回程", auto_bh = "角色与回程",
+	bh0_valid = "回程配置 (BhProfile)", bh0_ssid = "回程配置 (BhProfile)", bh0_auth = "回程配置 (BhProfile)", bh0_enc = "回程配置 (BhProfile)", bh0_key = "回程配置 (BhProfile)", bh0_raid = "回程配置 (BhProfile)",
+	bh1_valid = "回程配置 (BhProfile)", bh1_ssid = "回程配置 (BhProfile)", bh1_auth = "回程配置 (BhProfile)", bh1_enc = "回程配置 (BhProfile)", bh1_key = "回程配置 (BhProfile)", bh1_raid = "回程配置 (BhProfile)",
+	bh2_valid = "回程配置 (BhProfile)", bh2_ssid = "回程配置 (BhProfile)", bh2_auth = "回程配置 (BhProfile)", bh2_enc = "回程配置 (BhProfile)", bh2_key = "回程配置 (BhProfile)", bh2_raid = "回程配置 (BhProfile)",
+	bh_prio_2g = "回程优先级", bh_prio_5gl = "回程优先级", bh_prio_5gh = "回程优先级", bh_prio_6g = "回程优先级",
+	steer = "漫游与引导", ap_steer_rssi = "漫游与引导", force_roam_rssi = "漫游与引导", central_steer = "漫游与引导",
+	scan_th_2g = "漫游与引导", scan_th_5g = "漫游与引导", scan_th_6g = "漫游与引导",
+	lowrssi_edge_re = "漫游与引导", band_switch_time = "漫游与引导",
+	ch_plan = "信道规划", chplan_r2 = "信道规划", chplan_timeout = "信道规划", chplan_scan_valid = "信道规划",
+	divergent_chplan = "信道规划", pref_ch_2g = "信道规划", pref_ch_5g = "信道规划", pref_ch_5gh = "信道规划", pref_ch_6g = "信道规划",
+	quick_ch = "信道规划",
+	netopt = "网络优化", ntwrk_boot_wait = "网络优化", ntwrk_conn_wait = "网络优化", ntwrk_disconn_wait = "网络优化",
+	ntwrk_period = "网络优化", netopt_score_margin = "网络优化", netopt_pref5g = "网络优化", netopt_pref5g_retry = "网络优化",
+	netopt_user_priority = "网络优化", ntwrk_data_collect = "网络优化", ntwrk_postcac = "网络优化",
+	third_party = "网络优化", role_detect_ext = "网络优化",
+	dhcp_ctl = "其他 MAP 参数", non_map_ap = "其他 MAP 参数", bss_cfg_priority = "其他 MAP 参数",
+	dual_bh = "其他 MAP 参数", max_scan = "其他 MAP 参数", setpsc_6g = "其他 MAP 参数",
+	cu_overload_2g = "其他 MAP 参数", cu_overload_5gl = "其他 MAP 参数", cu_overload_5gh = "其他 MAP 参数",
+	ctrl_alid = "1905d 链路配置", agent_alid = "1905d 链路配置", radio_band = "1905d 链路配置",
+	br_inf = "1905d 链路配置", al_inf = "1905d 链路配置", eth_dev_name = "1905d 链路配置",
+	decrypt_th = "1905d 链路配置", gtk_rekey = "1905d 链路配置", ob_wan_only = "1905d 链路配置",
+}
+local GROUP_ORDER = { "角色与回程", "回程配置 (BhProfile)", "回程优先级", "漫游与引导", "信道规划", "网络优化", "其他 MAP 参数", "1905d 链路配置" }
+
+local function fields_meta()
+	local meta = {}
+	for _, id in ipairs(FIELD_IDS) do
+		local f = FIELDS[id]
+		if f then
+			local m = { id = id, type = f.type, label = f.label, group = FIELD_GROUPS[id] or "其他" }
+			if f.secret then m.secret = true end
+			if f.type == "enum" then
+				local opts, seen = {}, {}
+				local function push(v, label)
+					if not seen[v] then seen[v] = true; opts[#opts + 1] = { value = v, label = label } end
+				end
+				if f.labels then
+					if f.enum_sort then
+						for _, v in ipairs(f.enum_sort) do if f.labels[v] then push(v, f.labels[v]) end end
+					end
+					for _, v in pairs(f.map) do if f.labels[v] then push(v, f.labels[v]) end end
+				else
+					push("0", "停用")
+					push("1", "启用")
+				end
+				m.options = opts
+			end
+			if f.type == "int" then m.min = f.min; m.max = f.max end
+			if f.type == "string" or f.type == "mac" then m.len = 64 end
+			meta[#meta + 1] = m
+		end
+	end
+	return meta
+end
+
 local function capabilities()
 	local writable = fs.access(MAP_DIR, "w")
 	local writable_fields, missing = {}, {}
@@ -361,6 +543,8 @@ local function capabilities()
 		writable = writable,
 		writable_fields = writable_fields,
 		missing_fields = missing,
+		fields_meta = fields_meta(),
+		groups = GROUP_ORDER,
 		services = service_states(),
 		note = "仅写入已探测到的白名单配置键（mapd_cfg / 1905d.cfg），写入前快照、失败自动回滚；拓扑查询只读使用 wappctrl get map_devices。",
 	}
@@ -382,7 +566,19 @@ local function set_field(args)
 	if not cur_line then return { ok = false, error = "配置中不存在键 " .. f.key .. "（固件版本可能不同）" } end
 	local cur = stripq(cur_line.value)
 	local nv
-	if f.type == "enum" then
+	if f.secret then
+		local raw = args.value
+		if type(raw) ~= "string" or raw == "" then
+			return { ok = false, error = "未提供新密钥（留空表示不修改）" }
+		end
+		if raw == REDACTED or raw == "__unchanged__" then
+			return { ok = false, error = "值未变化" }
+		end
+		if #raw < 8 or #raw > 63 then
+			return { ok = false, error = "密钥需为 8-63 位" }
+		end
+		nv = raw
+	elseif f.type == "enum" then
 		local raw = args.value
 		if type(raw) ~= "string" then return { ok = false, error = "缺少 value 参数" } end
 		nv = f.map[raw] or f.map[raw:lower()]
@@ -398,10 +594,22 @@ local function set_field(args)
 			return { ok = false, error = ("数值需为 %d-%d 之间的整数"):format(f.min, f.max) }
 		end
 		nv = tostring(n)
+	elseif f.type == "string" then
+		local raw = args.value
+		if type(raw) ~= "string" then return { ok = false, error = "缺少 value 参数" } end
+		raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
+		if raw == "" or #raw > 64 then return { ok = false, error = "值需为 1-64 个字符" } end
+		nv = raw
+	elseif f.type == "mac" then
+		local raw = args.value
+		if type(raw) ~= "string" or not raw:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then
+			return { ok = false, error = "MAC 地址格式非法" }
+		end
+		nv = raw
 	else
 		return { ok = false, error = "不支持的字段类型" }
 	end
-	if cur == nv then return { ok = false, error = "值未变化（当前: " .. cur .. "）" } end
+	if not f.secret and cur == nv then return { ok = false, error = "值未变化（当前: " .. cur .. "）" } end
 	-- keep original quoting style (mapd files are unquoted key=value)
 	local openq, closeq = "", ""
 	if cur_line.value:sub(1, 1) == '"' then openq, closeq = '"', '"' end
@@ -440,10 +648,10 @@ local function set_field(args)
 			return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
 		end
 		os.remove(snap)
-		return { ok = true, field = id, key = f.key, old = cur, value = nv, file = path, reloaded = true, results = results }
+		return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path, reloaded = true, results = results }
 	end
 	os.remove(snap)
-	return { ok = true, field = id, key = f.key, old = cur, value = nv, file = path }
+	return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path }
 end
 
 -- compatibility wrappers (map.js legacy calls)

@@ -87,6 +87,7 @@ local IFACE_FIELDS = {
 	{ id = "ieee80211r", uci = "ieee80211r", label = "802.11r", category = "漫游", type = "boolean" },
 	{ id = "macfilter", uci = "macfilter", label = "MAC 过滤", category = "ACL", type = "enum", values = { "disable", "allow", "deny" } },
 	{ id = "maclist", uci = "maclist", label = "MAC 列表", category = "ACL", type = "string" },
+	{ id = "steeringbssid", uci = "steeringbssid", label = "引导 BSSID 列表", category = "漫游", type = "string" },
 	{ id = "wpa_group_rekey", uci = "wpa_group_rekey", label = "组密钥更新 (s)", category = "安全", type = "integer", min = 0, max = 86400 },
 	{ id = "frag", uci = "frag", label = "分片阈值", category = "基础", type = "integer", min = 256, max = 2346 },
 	{ id = "rts", uci = "rts", label = "RTS 阈值", category = "基础", type = "integer", min = 1, max = 2347 },
@@ -174,7 +175,7 @@ local function valid(f, v)
 	end
 	if f.id == "country" and not v:match("^%u%u$") then return nil end
 	if f.id == "channel" and not (v == "auto" or v:match("^%d+$")) then return nil end
-	if f.id == "maclist" then
+	if f.id == "maclist" or f.id == "steeringbssid" then
 		local count = 0
 		for mac in v:gmatch("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") do count = count + 1 end
 		if count == 0 then return nil end
@@ -189,6 +190,17 @@ local function apply(a)
 	local c, typ = sh(UCI .. " get wireless." .. q(a.device))
 	if c ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c } end
 	local target = a.iface and iface_ok(a.iface)
+	local has_iface_field = false
+	for k in pairs(a.values) do
+		if ALLOWED[k] and ALLOWED[k].target == "iface" then has_iface_field = true break end
+	end
+	if has_iface_field then
+		if not target then return { ok = false, error = "iface 字段需要合法 iface 参数" } end
+		local ci, ti = sh(UCI .. " get wireless." .. q(target))
+		if ci ~= 0 or not ti:find("wifi-iface", 1, true) then
+			return { ok = false, error = "iface 不存在或不是 wifi-iface", exit_code = ci }
+		end
+	end
 	local before, changes = {}, {}
 	for k, v in pairs(a.values) do
 		local f = ALLOWED[k]

@@ -15,8 +15,6 @@ var applyAll = rpc.declare({ object: 'mtk-dash2', method: 'apply_wireless' });
 
 var ENCS = ['none', 'psk2+ccmp', 'psk2+tkip+ccmp', 'psk-mixed', 'sae', 'sae-mixed', 'owe', 'psk2', 'psk', 'psk-mixed+ccmp'];
 var HTMODES = ['HT20', 'HT40', 'VHT20', 'VHT40', 'VHT80', 'VHT160', 'HE20', 'HE40', 'HE80', 'HE160'];
-var ENC_MAP = {};
-ENCS.forEach(function(e) { ENC_MAP[e] = true; });
 
 function select(options, current) {
 	var s = E('select', { 'class': 'cbi-input-select' });
@@ -27,6 +25,21 @@ function select(options, current) {
 		s.appendChild(opt);
 	});
 	return s;
+}
+/* keep the live value even when it is not in the preset list, so saving
+ * unrelated fields can never silently overwrite encryption/htmode/etc. */
+function selectLive(options, current) {
+	var v = String(current == null ? '' : current);
+	var s = select(options, v);
+	if (v !== '' && options.indexOf(v) < 0) {
+		var opt = E('option', { value: v }, [v + _('（当前）')]);
+		opt.selected = true;
+		s.appendChild(opt);
+	}
+	return s;
+}
+function thRow(cells) {
+	return E('tr', {}, cells.map(function(h) { return E('th', {}, [h]); }));
 }
 function textInput(value, extra) {
 	var attrs = { 'class': 'cbi-input-text' };
@@ -48,11 +61,11 @@ return view.extend({
 		root.appendChild(E('p', {}, [_('已接入 netifd/mtwifi-cfg 的真实配置路径；写入后提交、应用并复核，失败自动回滚。')]));
 
 		var out1 = outBox();
-		var dt = E('table', { 'class': 'cbi-section-table' }, [E('tr', {}, [_('设备'), _('信道'), _('频宽'), _('发射功率(dBm)'), _('国家'), _('状态'), _('操作')])]);
+		var dt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('设备'), _('信道'), _('频宽'), _('发射功率(dBm)'), _('国家'), _('状态'), _('操作')])]);
 		devices.forEach(function(d) {
 			var dis = String(d.disabled) === '1' || d.disabled === true;
 			var chan = textInput(d.channel == null ? 'auto' : d.channel, { maxlength: 16 });
-			var htm = select(HTMODES, d.htmode || 'HE80');
+			var htm = selectLive(HTMODES, d.htmode || '');
 			var pwr = textInput(d.txpower == null ? '' : d.txpower, { maxlength: 3 });
 			var cty = textInput(d.country == null ? '' : d.country, { maxlength: 2 });
 			var actions = E('td', {}, []);
@@ -75,12 +88,11 @@ return view.extend({
 		root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('无线设备')]), dt, out1]));
 
 		var out2 = outBox();
-		var it = E('table', { 'class': 'cbi-section-table' }, [E('tr', {}, [_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('隔离'), _('11k'), _('11r'), _('MAC 过滤'), _('操作')])]);
+		var it = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('隔离'), _('11k'), _('11r'), _('MAC 过滤'), _('操作')])]);
 		ifaces.forEach(function(f) {
-			var enc = (f.encryption || 'none');
-			if (!ENC_MAP[enc]) enc = 'none';
+			var enc = f.encryption || 'none';
 			var ssid = textInput(f.ssid, { maxlength: 32 });
-			var sel = select(ENCS, enc);
+			var sel = selectLive(ENCS, enc);
 			var key = textInput('', { type: 'password', maxlength: 63, placeholder: f.key_set ? '••••••••（已设置）' : '' });
 			var net = textInput(f.network, { maxlength: 64 });
 			var hid = E('input', { type: 'checkbox' });
@@ -91,10 +103,14 @@ return view.extend({
 			if (String(f.ieee80211k) === '1' || f.ieee80211k === true) k11.checked = true;
 			var r11 = E('input', { type: 'checkbox' });
 			if (String(f.ieee80211r) === '1' || f.ieee80211r === true) r11.checked = true;
-			var mf = select(['disable', 'allow', 'deny'], f.macfilter || 'disable');
+			var mf = selectLive(['disable', 'allow', 'deny'], f.macfilter || 'disable');
 			var acts = E('td', {}, []);
 			if (canW) {
 				acts.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
+					if (enc === 'none' && sel.value !== 'none' && !key.value) {
+						window.alert(_('切换到加密模式时必须填写密钥（8-63 位）。'));
+						return;
+					}
 					var values = { ssid: ssid.value, encryption: sel.value, network: net.value, hidden: hid.checked ? '1' : '0', isolate: iso.checked ? '1' : '0', macfilter: mf.value, ieee80211k: k11.checked ? '1' : '0', ieee80211r: r11.checked ? '1' : '0' };
 					if (key.value) { values.key = key.value; }
 					if (!window.confirm(_('确认应用接口配置 ') + String(f.name) + _('？该接口的无线连接可能短暂中断。'))) return;
@@ -121,12 +137,16 @@ return view.extend({
 			root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('添加接口 (AP/MBSSID 或 STA/APCLI)')]), E('div', { 'class': 'cbi-value' }, [_('设备：'), dsel, '　', _('模式：'), msel, '　', _('SSID：'), ssidIn, '　', _('加密：'), encSel, '　', _('密钥：'), keyIn, '　', _('网络：'), netIn, '　', _('BSSID：'), bssidIn]),
 				E('p', { 'class': 'alert-message notice' }, [_('每个射频仅支持 1 个 STA/APCLI 接口；AP 上限 16。')]),
 				E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
+					if (encSel.value !== 'none' && !keyIn.value) {
+						window.alert(_('加密模式下必须填写密钥（8-63 位）。'));
+						return;
+					}
 					if (!window.confirm(_('确认添加新接口？创建后会自动应用。'))) return;
 					addVif(dsel.value, msel.value, ssidIn.value, encSel.value, keyIn.value, netIn.value, bssidIn.value, true).then(function(r) { setOut(out3, r); }).catch(function(e) { setOut(out3, { error: String(e) }); });
 				}}, [_('添加')]), out3]));
 		}
 
-		var stt = E('table', { 'class': 'cbi-section-table' }, [E('tr', {}, [_('接口'), _('MAC'), _('信号(dBm)'), _('TX Mbps'), _('RX Mbps'), _('空闲时间(s)')])]);
+		var stt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('MAC'), _('信号(dBm)'), _('TX Mbps'), _('RX Mbps'), _('空闲时间(s)')])]);
 		var staRows = 0;
 		(st.radios || []).forEach(function(r) {
 			(r.ifaces || []).forEach(function(fi) {

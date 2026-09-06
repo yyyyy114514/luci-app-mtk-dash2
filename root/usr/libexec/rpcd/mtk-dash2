@@ -182,6 +182,8 @@ local function write_atomic(path, content)
 	if not f then return false end
 	f:write(content)
 	f:close()
+	local mode = fs.stat(path, "mode")
+	if mode then pcall(fs.chmod, tmp, mode) end
 	return os.rename(tmp, path)
 end
 
@@ -705,6 +707,7 @@ local VIF_VALUE_FIELDS = {
 	ieee80211r = { kind = "bool" },
 	macfilter = { kind = "enum", values = { "disable", "allow", "deny" } },
 	maclist = { kind = "maclist" },
+	steeringbssid = { kind = "maclist" },
 	wpa_group_rekey = { kind = "int", min = 0, max = 86400 },
 	frag = { kind = "int", min = 256, max = 2346 },
 	rts = { kind = "int", min = 1, max = 2347 },
@@ -910,8 +913,12 @@ local function update_vif(args)
 	end
 	local enc_changed = want_enc ~= nil and want_enc ~= cur_enc
 	if enc_changed and want_enc ~= "none" and not args.values.key then
-		restore_wireless_uci(rb)
-		return { ok = false, error = "切换到加密模式时必须同时提供 key" }
+		local kc, ko = sh(UCI_BIN .. " get wireless." .. iface .. ".key")
+		local has_key = kc == 0 and ko:gsub("%s+$", "") ~= ""
+		if not has_key then
+			restore_wireless_uci(rb)
+			return { ok = false, error = "切换到加密模式时必须同时提供 key" }
+		end
 	end
 	if enc_changed and want_enc == "none" then
 		sh(UCI_BIN .. " delete wireless." .. iface .. ".key")

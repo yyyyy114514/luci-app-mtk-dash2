@@ -7,48 +7,6 @@ var getCaps = rpc.declare({ object: 'map-easymesh', method: 'capabilities' });
 var setField = rpc.declare({ object: 'map-easymesh', method: 'set_field', params: ['field', 'value', 'reload'] });
 var reloadSvc = rpc.declare({ object: 'map-easymesh', method: 'reload' });
 
-/* field metadata: enum options and input kinds (mirrors backend FIELDS) */
-var FIELD_META = {
-	role: { kind: 'select', label: _('设备角色 (DeviceRole)'), options: [
-		{ value: 'agent', label: _('Agent (0)') },
-		{ value: 'controller', label: _('Controller (1)') },
-		{ value: 'both', label: _('Controller+Agent (2)') }
-	], hint: _('切换后需重启 MAP 服务生效') },
-	backhaul: { kind: 'select', label: _('回程类型 (bh_type)'), options: [
-		{ value: 'eth', label: _('以太网优先 (eth)') },
-		{ value: 'wifi', label: _('无线回程 (wifi)') }
-	] },
-	steer: { kind: 'select', label: _('频段引导 (SteerEnable)'), options: boolOpts() },
-	auto_bh: { kind: 'select', label: _('自动回程切换 (AutoBHSwitching)'), options: boolOpts() },
-	ch_plan: { kind: 'select', label: _('信道规划 (ChPlanningEnable)'), options: boolOpts() },
-	central_steer: { kind: 'select', label: _('集中式引导 (CentralizedSteering)'), options: boolOpts() },
-	dhcp_ctl: { kind: 'select', label: _('DHCP 控制 (DhcpCtl)'), options: boolOpts() },
-	non_map_ap: { kind: 'select', label: _('非 MAP AP 兼容 (NonMAPAPEnable)'), options: boolOpts() },
-	quick_ch: { kind: 'select', label: _('快速信道切换 (MAP_QuickChChange)'), options: boolOpts() },
-	netopt: { kind: 'select', label: _('网络优化 (NetworkOptimizationEnabled)'), options: boolOpts() },
-	ap_steer_rssi: { kind: 'number', label: _('AP 引导 RSSI 阈值 (dBm)'), min: -100, max: 0 },
-	force_roam_rssi: { kind: 'number', label: _('强制漫游 RSSI 阈值 (dBm)'), min: -100, max: 0 },
-	scan_th_2g: { kind: 'number', label: _('2G 扫描阈值 (dBm)'), min: -100, max: 0 },
-	scan_th_5g: { kind: 'number', label: _('5G 扫描阈值 (dBm)'), min: -100, max: 0 },
-	scan_th_6g: { kind: 'number', label: _('6G 扫描阈值 (dBm)'), min: -100, max: 0 },
-	metric_intv: { kind: 'number', label: _('度量上报间隔 (s)'), min: 1, max: 3600 },
-	bh_steer_timeout: { kind: 'number', label: _('回程引导超时 (s)'), min: 1, max: 3600 },
-	pref_ch_2g: { kind: 'number', label: _('首选信道 2G'), min: 1, max: 14 },
-	pref_ch_5g: { kind: 'number', label: _('首选信道 5G'), min: 36, max: 177 },
-	pref_ch_5gh: { kind: 'number', label: _('首选信道 5G-高'), min: 100, max: 177 }
-};
-
-function boolOpts() {
-	return [ { value: '1', label: _('启用') }, { value: '0', label: _('停用') } ];
-}
-
-var GROUPS = [
-	{ title: _('角色与回程'), fields: ['role', 'backhaul', 'auto_bh'] },
-	{ title: _('漫游与引导'), fields: ['steer', 'ap_steer_rssi', 'force_roam_rssi', 'central_steer', 'scan_th_2g', 'scan_th_5g', 'scan_th_6g'] },
-	{ title: _('信道规划'), fields: ['ch_plan', 'pref_ch_2g', 'pref_ch_5g', 'pref_ch_5gh', 'quick_ch'] },
-	{ title: _('其他'), fields: ['dhcp_ctl', 'non_map_ap', 'netopt', 'metric_intv', 'bh_steer_timeout'] }
-];
-
 function table(headers, rows) {
 	var t = E('table', { 'class': 'cbi-section-table' }, [E('tr', {}, headers.map(function(h) { return E('th', {}, [h]); }))]);
 	rows.forEach(function(r) { t.appendChild(E('tr', {}, r.map(function(c) { return E('td', {}, [c == null || c === '' ? '-' : String(c)]); }))); });
@@ -71,25 +29,33 @@ return view.extend({
 		return Promise.all([getStatus(), getCaps()]);
 	},
 
-	fieldControl: function(id, state, writable, msgEl) {
-		var meta = FIELD_META[id];
-		if (!meta || !state || !state.present) return null;
+	fieldControl: function(id, st, writable, msgEl, meta) {
+		if (!meta || !st || !st.present) return null;
 		var input;
-		if (meta.kind == 'select') {
+		if (meta.type === 'enum') {
 			input = E('select', { 'class': 'cbi-input-select', style: 'min-width:220px' });
-			meta.options.forEach(function(o) {
+			(meta.options || []).forEach(function(o) {
 				var opt = E('option', { 'value': o.value }, [o.label]);
-				if (String(state.value) == o.value || (id == 'role' && state.value != null && o.value == { '0': 'agent', '1': 'controller', '2': 'both' }[String(state.value)]))
-					opt.selected = true;
+				if (String(st.value) == o.value) opt.selected = true;
 				input.appendChild(opt);
 			});
-		} else {
+		} else if (meta.secret) {
+			input = E('input', { 'class': 'cbi-input-text', type: 'password', style: 'width:220px', maxlength: 63,
+				placeholder: st.set ? _('已设置，留空不修改') : _('未设置') });
+		} else if (meta.type === 'int') {
 			input = E('input', { 'class': 'cbi-input-text', type: 'number', style: 'width:160px',
-				min: meta.min, max: meta.max, value: state.value != null ? String(state.value) : '' });
+				min: meta.min, max: meta.max, value: st.value != null ? String(st.value) : '' });
+		} else {
+			input = E('input', { 'class': 'cbi-input-text', style: 'width:220px', maxlength: meta.len || 64,
+				value: st.value != null ? String(st.value) : '' });
 		}
 		if (!writable) input.disabled = true;
 		var btn = E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
 			ev.preventDefault();
+			if (meta.secret && !input.value) {
+				window.alert(_('请输入新密钥；留空表示不修改。'));
+				return;
+			}
 			if (!window.confirm(_('确认修改 %s ？写入校验失败或服务重载失败将自动回滚。').format(meta.label)))
 				return;
 			msg(msgEl, 'notice', _('正在写入...'));
@@ -101,7 +67,7 @@ return view.extend({
 					msg(msgEl, 'error', (r && r.error) || _('操作失败'));
 				}
 			}).catch(function(e) { msg(msgEl, 'error', String(e)); });
-		}}, [_('应用')]);
+		}}, [meta.secret ? _('保存') : _('应用')]);
 		if (!writable) btn.disabled = true;
 		return E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [meta.label]),
@@ -169,20 +135,24 @@ return view.extend({
 			root.appendChild(section(_('回程链路 (bh_link_list)'), table([_('链路')], links.map(function(l) { return [l]; }))));
 		}
 
-		/* editable fields */
+		/* editable fields: groups + metadata come from the backend so the
+		 * whitelist and the page can never drift apart */
 		var fields = state.fields || {};
+		var metaList = caps.fields_meta || [];
+		var groups = caps.groups || [];
 		var self = this;
-		GROUPS.forEach(function(g) {
+		groups.forEach(function(gname) {
 			var box = E('div');
 			var count = 0;
-			g.fields.forEach(function(id) {
-				var st = fields[id];
+			metaList.forEach(function(meta) {
+				if (meta.group !== gname) return;
+				var st = fields[meta.id];
 				if (!st) return;
 				var m = E('div');
-				var ctl = self.fieldControl(id, st, writable && wfields[id] == true, m);
+				var ctl = self.fieldControl(meta.id, st, writable && wfields[meta.id] == true, m, meta);
 				if (ctl) { box.appendChild(ctl); box.appendChild(m); count++; }
 			});
-			if (count > 0) root.appendChild(section(g.title, box));
+			if (count > 0) root.appendChild(section(gname, box));
 		});
 
 		/* full config view */
