@@ -142,14 +142,14 @@ return view.extend({
 				[_('/etc/map 可写'), caps.writable ? _('是') : _('否')],
 				[_('当前角色'), st.role || _('未知')],
 				[_('MAP 版本'), st.map_ver || '-'],
-				[_('Controller ALID'), st.map_root || '-'],
-				[_('Agent ALID'), st.map_agent || '-'],
+				[_('Controller ALID'), (st.fields && st.fields.ctrl_alid && st.fields.ctrl_alid.value) || '-'],
+				[_('Agent ALID'), (st.fields && st.fields.agent_alid && st.fields.agent_alid.value) || '-'],
 				[_('拓扑节点'), st.nodes ? String((st.nodes || []).length) : '-'],
 				[_('回程链路'), st.backhaul_links ? String((st.backhaul_links || []).length) : '-']
 			];
 			Object.keys(svcs).forEach(function(s) {
 				var v = svcs[s] || {};
-				var txt = v.status === 'running' ? _('运行中') : (v.status === 'stopped' ? _('已停止') : _('缺失'));
+				var txt = v.status === 'running' ? _('运行中') : (v.status === 'stopped' ? _('已停止') : (v.status === 'disabled' ? _('未启用') : (v.status === 'config' ? _('配置就绪') : _('缺失'))));
 				rows.push([_('服务 %s').format(s), txt]);
 			});
 			var warns = [];

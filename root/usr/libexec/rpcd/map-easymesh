@@ -559,6 +559,13 @@ local function config()
 	return out
 end
 
+local function proc_running(name)
+	local code = sh("pidof " .. name)
+	if code == 0 then return true end
+	local c2 = sh("pgrep -x " .. name)
+	return c2 == 0
+end
+
 local function service_states()
 	local states = {}
 	for _, s in ipairs(SERVICES) do
@@ -566,8 +573,28 @@ local function service_states()
 		if fs.access(initd, "x") then
 			local code = sh(initd .. " running")
 			states[s] = { status = code == 0 and "running" or "stopped", exit_code = code }
+		elseif s == "mapd" then
+			if fs.access(MAP_DIR .. "/mapd_cfg") then
+				states[s] = { status = "config" }
+			else
+				states[s] = { status = "missing" }
+			end
 		else
-			states[s] = { status = "missing" }
+			local exe = bin(s)
+			if not exe then
+				states[s] = { status = "missing" }
+			else
+				local enabled = true
+				if s == "wapp" then
+					local _, uout = sh("uci -q show wireless 2>/dev/null")
+					enabled = tostring(uout or ""):match("%.wapp%s*=%s*['\"]?1") ~= nil
+				end
+				if proc_running(s) then
+					states[s] = { status = "running", installed = true, exe = exe, enabled = enabled }
+				else
+					states[s] = { status = (not enabled) and "disabled" or "stopped", installed = true, exe = exe, enabled = enabled }
+				end
+			end
 		end
 	end
 	return states

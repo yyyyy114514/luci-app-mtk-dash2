@@ -101,7 +101,7 @@ return view.extend({
 		/* overview */
 		var svcRows = Object.keys(state.services || {}).map(function(k) {
 			var s = state.services[k];
-			return [k, s.status == 'running' ? _('运行中') : (s.status == 'missing' ? _('未安装') : _('未运行'))];
+			return [k, s.status == 'running' ? _('运行中') : (s.status == 'missing' ? _('未安装') : (s.status == 'config' ? _('配置就绪') : (s.status == 'disabled' ? _('未启用') : _('未运行'))))];
 		});
 		root.appendChild(section(_('运行状态'), table([_('服务'), _('状态')], svcRows)));
 
