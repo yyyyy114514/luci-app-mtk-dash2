@@ -34,6 +34,18 @@
 		}
 	},
 
+	"admin/network/mtk-dash2/setup": {
+		"title": "EasyMesh 设置向导",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "mtk-dash2/setup"
+		},
+		"depends": {
+			"acl": [ "luci-app-mtk-dash2-map" ]
+		}
+	},
+
 	"admin/network/mtk-dash2/map": {
 		"title": "MAP EasyMesh",
 		"order": 30,
