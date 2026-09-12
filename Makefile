@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mtk-dash2
-PKG_VERSION:=0.4.3
+PKG_VERSION:=0.4.5
 PKG_RELEASE:=1
 
 LUCI_TITLE:=MTK Dash2 Wi-Fi and MAP management

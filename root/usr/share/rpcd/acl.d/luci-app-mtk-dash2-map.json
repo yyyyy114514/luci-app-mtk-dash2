@@ -3,7 +3,7 @@
     "description": "MTK MAP EasyMesh runtime",
     "read": {
       "ubus": {
-        "map-easymesh": ["status", "capabilities", "config", "topology"]
+        "map-easymesh": ["status", "capabilities", "config", "topology", "wapp_diag"]
       }
     },
     "write": {
@@ -11,7 +11,7 @@
         "map-easymesh": [
           "set_role", "set_backhaul", "set_policy", "set_field", "reload",
           "bh_status", "bh_scan", "bh_connect", "bh_disconnect",
-          "pbc_trigger", "set_bh_type", "wapp_reload", "wapp_version", "steer_sta",
+          "pbc_trigger", "set_bh_type", "wapp_reload", "wapp_enable", "wapp_version", "steer_sta",
           "btm_req", "wnm_req", "wnm_req2", "qos_map", "proxy_arp_list", "reset",
           "dpp_qr_code", "dpp_bootstrap_gen", "dpp_bootstrap_info", "dpp_bootstrap_get_uri", "dpp_bootstrap_remove",
           "dpp_start", "dpp_listen", "dpp_stop_listen",

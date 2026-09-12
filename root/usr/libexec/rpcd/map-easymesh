@@ -616,6 +616,173 @@ local function restore_alid()
 	return saved
 end
 
+local WAPP_CTRL_SOCKET = "/tmp/wapp_ctrl"
+
+local function wapp_radio_decision()
+	local ra0, rax0 = 0, 0
+	local function any_is(sections, opt, val)
+		for _, sec in ipairs(sections) do
+			local code, out = sh("uci -q get wireless." .. sec .. "." .. opt .. " 2>/dev/null")
+			if code == 0 and stripq(clean(tostring(out or ""))) == tostring(val) then return true end
+		end
+		return false
+	end
+	local function any_lt0(sections, opt)
+		for _, sec in ipairs(sections) do
+			local code, out = sh("uci -q get wireless." .. sec .. "." .. opt .. " 2>/dev/null")
+			if code == 0 then
+				local n = tonumber(stripq(clean(tostring(out or ""))))
+				if n and n < 0 then return true end
+			end
+		end
+		return false
+	end
+	if any_is({ "MT7981_1_1", "MT7986_1_1" }, "bandsteering", 1) then ra0, rax0 = 1, 1 end
+	if any_is({ "MT7981_1_1", "MT7986_1_1" }, "ieee80211r", 1) then ra0 = 1 end
+	if any_lt0({ "default_MT7981_1_2", "default_MT7986_1_2" }, "steeringthresold") then ra0 = 1 end
+	if any_is({ "default_MT7981_1_1", "default_MT7986_1_1" }, "disabled", 1) then ra0, rax0 = 0, 0 end
+	if any_is({ "MT7981_1_2", "MT7986_1_2" }, "ieee80211r", 1) then rax0 = 1 end
+	if any_lt0({ "default_MT7981_1_2", "default_MT7986_1_2" }, "steeringthresold") then rax0 = 1 end
+	if any_is({ "default_MT7981_1_2", "default_MT7986_1_2" }, "disabled", 1) then rax0 = 0 end
+	return ra0, rax0
+end
+
+local function mtwifi_devices()
+	local devs = {}
+	local _, out = sh("uci -q show wireless 2>/dev/null")
+	for line in tostring(out or ""):gmatch("[^\r\n]+") do
+		local sec = line:match("^wireless%.([^.]+)=wifi%-device$")
+		if sec then
+			local code, tout = sh("uci -q get wireless." .. sec .. ".type 2>/dev/null")
+			if code == 0 and stripq(clean(tostring(tout or ""))) == "mtwifi" then
+				local function optval(opt)
+					local c, o = sh("uci -q get wireless." .. sec .. "." .. opt .. " 2>/dev/null")
+					if c ~= 0 then return 0 end
+					return tonumber(stripq(clean(tostring(o or "")))) or 0
+				end
+				devs[#devs + 1] = {
+					section = sec,
+					wapp = optval("wapp"),
+					bandsteering = optval("bandsteering"),
+					ieee80211r = optval("ieee80211r"),
+					disabled = optval("disabled"),
+				}
+			end
+		end
+	end
+	return devs
+end
+
+local function wapp_diag()
+	local start_script = bin("startwapp.sh")
+	local wapp_bin = bin("wapp")
+	local running = wapp_bin ~= nil and proc_running("wapp")
+	local sock = fs.access(WAPP_CTRL_SOCKET) ~= nil
+	local devs = mtwifi_devices()
+	local switch_on = false
+	for _, d in ipairs(devs) do
+		if d.wapp == 1 then switch_on = true break end
+	end
+	local ra0, rax0 = wapp_radio_decision()
+	local can_start = start_script ~= nil and wapp_bin ~= nil and switch_on and (ra0 == 1 or rax0 == 1)
+	local reasons = {}
+	if not start_script then
+		reasons[#reasons + 1] = "未找到 /sbin/startwapp.sh（固件缺少 mtwifi-cfg wapp 组件）"
+	end
+	if not wapp_bin then
+		reasons[#reasons + 1] = "未找到 wapp 二进制（固件缺少 mtwifi-wapp 组件）"
+	end
+	if not switch_on then
+		reasons[#reasons + 1] = "没有任何 mtwifi 无线设备开启 wapp=1（固件 wapp 开关未打开）"
+	end
+	if ra0 == 0 and rax0 == 0 then
+		reasons[#reasons + 1] = "ra0/rax0 判定不满足（bandsteering/ieee80211r/steeringthresold 均未触发，或对应设备被 disabled=1 清零）"
+	end
+	return {
+		ok = true,
+		startwapp = start_script,
+		wapp_bin = wapp_bin,
+		wapp_running = running,
+		wapp_ctrl_socket = sock,
+		devices = devs,
+		switch_on = switch_on,
+		ra0 = ra0 == 1,
+		rax0 = rax0 == 1,
+		can_start = can_start,
+		reasons = reasons,
+	}
+end
+
+local function wapp_enable()
+	local results, warnings = {}, {}
+	local note
+	local start_script = bin("startwapp.sh")
+	if not start_script then
+		return { ok = false, error = "未找到 /sbin/startwapp.sh，固件缺少 mtwifi-cfg wapp 组件" }
+	end
+	if not bin("wapp") then
+		return { ok = false, error = "未找到 wapp 二进制，固件缺少 mtwifi-wapp 组件" }
+	end
+	local uci = bin("uci")
+	if not uci then return { ok = false, error = "未找到 uci 命令" } end
+	local q_uci = q(uci)
+
+	local devs = mtwifi_devices()
+	if #devs == 0 then
+		return { ok = false, error = "未检测到 type=mtwifi 的无线设备段，无法启用 wapp" }
+	end
+	local target
+	for _, d in ipairs(devs) do
+		if d.wapp == 1 then target = d break end
+	end
+	if not target then target = devs[1] end
+
+	if target.wapp ~= 1 then
+		local code, out = sh(q_uci .. " set wireless." .. target.section .. ".wapp=1")
+		results[#results + 1] = { command = "uci set wireless." .. target.section .. ".wapp=1", exit_code = code, ok = code == 0, output = clean(out) }
+		if code ~= 0 then return { ok = false, error = "设置 wapp=1 失败", results = results } end
+	end
+
+	local ra0, rax0 = wapp_radio_decision()
+	if ra0 == 0 and rax0 == 0 then
+		local bs_sec
+		for _, d in ipairs(devs) do
+			if d.section == "MT7981_1_1" or d.section == "MT7986_1_1" then bs_sec = d.section break end
+		end
+		if not bs_sec then
+			bs_sec = target.section
+			warnings[#warnings + 1] = "未找到固件硬编码 5G 段名（MT7981_1_1/MT7986_1_1），已改用段 " .. target.section .. "，请确认固件判定生效"
+		end
+		local code, out = sh(q_uci .. " set wireless." .. bs_sec .. ".bandsteering=1")
+		results[#results + 1] = { command = "uci set wireless." .. bs_sec .. ".bandsteering=1", exit_code = code, ok = code == 0, output = clean(out) }
+		if code ~= 0 then return { ok = false, error = "设置 bandsteering=1 失败", results = results } end
+		warnings[#warnings + 1] = "已开启 " .. bs_sec .. " 的 bandsteering=1 以满足固件 ra0/rax0 启动条件"
+	end
+
+	local code, out = sh(q_uci .. " commit wireless")
+	results[#results + 1] = { command = "uci commit wireless", exit_code = code, ok = code == 0, output = clean(out) }
+	if code ~= 0 then return { ok = false, error = "uci commit wireless 失败", results = results } end
+
+	local saved = restore_alid()
+	local code2, out2 = sh(q(start_script))
+	results[#results + 1] = { command = start_script, exit_code = code2, ok = code2 == 0, output = clean(out2) }
+
+	if saved and #saved > 0 then
+		local restored = 0
+		for _, a in ipairs(saved) do
+			local c3, _ = sh("sed -i " .. q("s/^" .. a.key .. "=.*/" .. a.key .. "=" .. a.value .. "/") .. " " .. q(ALID_FILE))
+			if c3 == 0 then restored = restored + 1 end
+		end
+		if restored < #saved then
+			note = "startwapp.sh 后 ALID 恢复不完整，请检查 /etc/map/1905d.cfg"
+		else
+			note = "startwapp.sh 已完成，已恢复脚本可能覆盖的 ALID 设置"
+		end
+	end
+
+	return { ok = code2 == 0, results = results, warnings = warnings, note = note, diag = wapp_diag() }
+end
+
 local function reload_services()
 	local present = {}
 	for _, s in ipairs(SERVICES) do
@@ -1519,6 +1686,8 @@ local methods = {
 	set_bh_type = { type = "" },
 	wapp_reload = { iface = "" },
 	wapp_version = { iface = "" },
+	wapp_diag = {},
+	wapp_enable = {},
 	steer_sta = { iface = "", mac = "" },
 	btm_req = { mac = "", ess_imm = "", timer = "", url = "" },
 	wnm_req = { iface = "", mac = "", url = "" },
@@ -1577,6 +1746,8 @@ local function dispatch(m, a)
 	if m == "set_bh_type" then return set_bh_type(a) end
 	if m == "wapp_reload" then return wapp_reload(a) end
 	if m == "wapp_version" then return wapp_version(a) end
+	if m == "wapp_diag" then return wapp_diag() end
+	if m == "wapp_enable" then return wapp_enable() end
 	if m == "steer_sta" then return steer_sta(a) end
 	if m == "btm_req" then return btm_req(a) end
 	if m == "wnm_req" then return wnm_req(a) end

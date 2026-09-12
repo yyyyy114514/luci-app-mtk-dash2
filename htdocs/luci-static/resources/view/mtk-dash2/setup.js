@@ -10,6 +10,8 @@ var bhStatus = rpc.declare({ object: 'map-easymesh', method: 'bh_status' });
 var bhScan = rpc.declare({ object: 'map-easymesh', method: 'bh_scan', params: ['iface'] });
 var bhConnect = rpc.declare({ object: 'map-easymesh', method: 'bh_connect', params: ['iface', 'ssid', 'auth', 'enc', 'key'] });
 var reloadSvc = rpc.declare({ object: 'map-easymesh', method: 'reload' });
+var getWappDiag = rpc.declare({ object: 'map-easymesh', method: 'wapp_diag' });
+var enableWapp = rpc.declare({ object: 'map-easymesh', method: 'wapp_enable' });
 
 var ROLE_OPTS = [
 	['0', _('Agent（被管理节点）')],
@@ -60,20 +62,20 @@ function fieldRow(label) {
 		children.push(f);
 	});
 	return E('div', { 'class': 'cbi-value' }, [
-		E('label', { 'class': 'cbi-value-title', style: 'min-width:220px' }, [label]),
+		E('label', { 'class': 'cbi-value-title', style: 'min-width:150px' }, [label]),
 		E('div', { 'class': 'cbi-value-field' }, children)
 	]);
 }
 
 function textInput(value, width, ph) {
-	var attrs = { 'class': 'cbi-input-text', style: 'width:' + (width || 220) + 'px' };
+	var attrs = { 'class': 'cbi-input-text', style: 'width:' + (width || 160) + 'px' };
 	if (value != null && value !== '') attrs.value = String(value);
 	if (ph) attrs.placeholder = ph;
 	return E('input', attrs);
 }
 
 function sel(options, cur) {
-	var s = E('select', { 'class': 'cbi-input-select', style: 'min-width:220px' });
+	var s = E('select', { 'class': 'cbi-input-select', style: 'min-width:110px' });
 	options.forEach(function(o) {
 		var opt = E('option', { value: String(o[0]) }, [String(o[1] != null ? o[1] : o[0])]);
 		if (String(cur) == String(o[0])) opt.selected = true;
@@ -101,11 +103,16 @@ function appendLine(pre, text) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([getStatus(), getCaps(), bhStatus()]);
+		return Promise.all([
+			getStatus(),
+			getCaps(),
+			bhStatus(),
+			getWappDiag().catch(function() { return { unavailable: true }; })
+		]);
 	},
 
 	render: function(data) {
-		var st = data[0] || {}, caps = data[1] || {}, bh = data[2] || {};
+		var st = data[0] || {}, caps = data[1] || {}, bh = data[2] || {}, wd = data[3] || {};
 		var fields = st.fields || {};
 		var svcs = caps.services || {};
 		var root = E('div', { 'class': 'cbi-map' });
@@ -147,6 +154,24 @@ return view.extend({
 				[_('拓扑节点'), st.nodes ? String((st.nodes || []).length) : '-'],
 				[_('回程链路'), st.backhaul_links ? String((st.backhaul_links || []).length) : '-']
 			];
+			var wappReasons = [];
+			var wappOut = E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto' }, []);
+			var wappReady = wd && !wd.unavailable && wd.ok;
+			if (wappReady) {
+				rows.push([_('wapp 二进制'), wd.wapp_bin || _('缺失')]);
+				rows.push([_('wapp 进程'), wd.wapp_running ? _('运行中') : _('未运行')]);
+				rows.push([_('wapp 控制套接字'), wd.wapp_ctrl_socket ? _('存在') : _('不存在')]);
+				rows.push([_('wapp 开关 (wapp=1)'), wd.switch_on ? _('已开启') : _('未开启')]);
+				rows.push([_('ra0 启动判定'), wd.ra0 ? _('满足') : _('不满足')]);
+				rows.push([_('rax0 启动判定'), wd.rax0 ? _('满足') : _('不满足')]);
+				(wd.devices || []).forEach(function(d) {
+					rows.push([_('无线设备 %s').format(d.section), 'wapp=' + d.wapp + ', bandsteering=' + d.bandsteering + ', ieee80211r=' + d.ieee80211r + ', disabled=' + d.disabled]);
+				});
+				(wd.reasons || []).forEach(function(r) { wappReasons.push(_('wapp 启动条件：%s').format(r)); });
+				if (!wd.can_start) wappReasons.push(_('wapp 启动前置条件未满足，可使用下方按钮自动设置并启动。'));
+			} else if (wd && wd.unavailable) {
+				wappReasons.push(_('当前后端不支持 wapp 诊断，请升级插件后端。'));
+			}
 			Object.keys(svcs).forEach(function(s) {
 				var v = svcs[s] || {};
 				var txt = v.status === 'running' ? _('运行中') : (v.status === 'stopped' ? _('已停止') : (v.status === 'disabled' ? _('未启用') : (v.status === 'config' ? _('配置就绪') : _('缺失'))));
@@ -162,6 +187,31 @@ return view.extend({
 			panel.appendChild(E('h3', {}, [_('① 环境检查')]));
 			panel.appendChild(tbl([_('检查项'), _('结果')], rows));
 			warns.forEach(function(w) { panel.appendChild(E('p', { 'class': 'alert-message warning' }, [w])); });
+			wappReasons.forEach(function(w) { panel.appendChild(E('p', { 'class': 'alert-message warning' }, [w])); });
+			if (wappReady) {
+				var enableBtn = E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
+					ev.preventDefault();
+					if (!window.confirm(_('确认启用 wapp 并启动服务？将设置 wapp=1，必要时开启 bandsteering，并执行 startwapp.sh。'))) return;
+					wappOut.innerHTML = '';
+					enableBtn.disabled = true;
+					enableWapp().then(function(r) {
+						(r.results || []).forEach(function(item) {
+							appendLine(wappOut, (item.ok ? '[OK] ' : '[FAIL] ') + item.command + (item.output ? ' :: ' + item.output : ''));
+						});
+						(r.warnings || []).forEach(function(w) { appendLine(wappOut, _('警告：%s').format(w)); });
+						if (r.error) appendLine(wappOut, _('错误：%s').format(r.error));
+						if (r.note) appendLine(wappOut, r.note);
+						if (r.diag) appendLine(wappOut, _('wapp 进程：%s；控制套接字：%s').format(r.diag.wapp_running ? _('运行中') : _('未运行'), r.diag.wapp_ctrl_socket ? _('存在') : _('不存在')));
+						if (r.ok) appendLine(wappOut, _('wapp 启用流程已完成。'));
+						enableBtn.disabled = false;
+					}).catch(function(e) {
+						appendLine(wappOut, _('调用失败：%s').format(String(e)));
+						enableBtn.disabled = false;
+					});
+				} }, [_('一键启用 wapp')]);
+				panel.appendChild(fieldRow(_('wapp 服务'), enableBtn));
+				panel.appendChild(wappOut);
+			}
 			panel.appendChild(makeNav(0));
 			steps.push({ el: panel });
 			root.appendChild(panel);
@@ -200,7 +250,7 @@ return view.extend({
 				var v = fields[f.id] ? fields[f.id].value : '';
 				var input;
 				if (f.type === 'switch') input = sel([['1', _('启用')], ['0', _('禁用')]], v == null || v === '' ? '0' : v);
-				else input = textInput(v, 260);
+				else input = textInput(v, 190);
 				ethInputs[f.id] = input;
 				ethPanel.appendChild(fieldRow(f.label, input));
 			});
@@ -213,10 +263,10 @@ return view.extend({
 			wifiIface = sel(opts, opts[0][0]);
 			bhOut = E('pre', { 'style': 'max-height:160px;overflow:auto' }, []);
 			scanOut = E('div', {});
-			connSsid = textInput('', 220);
+			connSsid = textInput('', 170);
 			connAuth = sel(AUTH_OPTS, 'WPA2PSK');
-			connEnc = textInput('AES', 90);
-			connKey = E('input', { 'class': 'cbi-input-text', 'type': 'password', 'style': 'width:200px', 'maxlength': 63 });
+			connEnc = textInput('AES', 70);
+			connKey = E('input', { 'class': 'cbi-input-text', 'type': 'password', 'style': 'width:150px', 'maxlength': 63 });
 			var scanBtn = E('button', { 'class': 'cbi-button', 'click': function(ev) {
 				ev.preventDefault();
 				if (!window.confirm(_('确认扫描 %s 周边无线网络？扫描会短暂占用射频。').format(String(wifiIface.value)))) return;
@@ -284,7 +334,7 @@ return view.extend({
 				var v = fields[f.id] ? fields[f.id].value : '';
 				var input;
 				if (f.opts) input = sel(f.opts, v == null || v === '' ? '0' : v);
-				else if (f.type === 'int') input = textInput(v == null || v === '' ? '' : String(v), 160, String(f.min) + ' ~ ' + String(f.max));
+				else if (f.type === 'int') input = textInput(v == null || v === '' ? '' : String(v), 120, String(f.min) + ' ~ ' + String(f.max));
 				else input = sel([['1', _('启用')], ['0', _('禁用')]], v == null || v === '' ? '0' : v);
 				paramInputs[f.id] = input;
 				panel.appendChild(fieldRow(f.label, input));
