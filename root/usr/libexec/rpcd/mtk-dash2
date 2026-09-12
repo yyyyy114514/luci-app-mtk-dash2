@@ -1,5 +1,8 @@
 #!/usr/bin/env lua
 local json = require "luci.jsonc"
+if type(json.encode) ~= "function" or type(json.decode) ~= "function" then
+	json = require "mtk_dash2_json"
+end
 local fs = require "nixio.fs"
 
 local function get_plugin_version()

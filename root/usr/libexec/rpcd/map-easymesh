@@ -3,6 +3,9 @@
 -- Writes only whitelisted keys in /etc/map/mapd_cfg and /etc/map/1905d.cfg.
 -- wappctrl is used read-only (get map_devices / bh_link_list) for topology.
 local json = require "luci.jsonc"
+if type(json.encode) ~= "function" or type(json.decode) ~= "function" then
+	json = require "mtk_dash2_json"
+end
 local fs = require "nixio.fs"
 
 local MAP_DIR = "/etc/map"
