@@ -1,20 +1,21 @@
 local M = {}
 
 local function is_array(value)
+	if value.__sig == true then
+		return false
+	end
 	local count = 0
 	local max = 0
 	for key in pairs(value) do
-		if key ~= "__sig" then
-			if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
-				return false
-			end
-			count = count + 1
-			if key > max then
-				max = key
-			end
+		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+			return false
+		end
+		count = count + 1
+		if key > max then
+			max = key
 		end
 	end
-	return count > 0 and count == max
+	return count == max
 end
 
 local function escape_string(value)
@@ -64,10 +65,11 @@ local function encode_value(value, stack)
 
 	for key, item in pairs(value) do
 		if key ~= "__sig" or item ~= true then
-			if type(key) ~= "string" then
+			local k = type(key) == "number" and tostring(key) or key
+			if type(k) ~= "string" then
 				error("object keys must be strings")
 			end
-			result[#result + 1] = escape_string(key) .. ":" .. encode_value(item, stack)
+			result[#result + 1] = escape_string(k) .. ":" .. encode_value(item, stack)
 		end
 	end
 	table.sort(result)
