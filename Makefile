@@ -10,6 +10,18 @@ LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
+# rpcd only scans /usr/libexec/rpcd at startup; without a restart the exec
+# plugin objects are not registered and every RPC returns
+# "-32000: Object not found" (frontend stuck on "正在载入视图…").
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+[ -z "$${IPKG_INSTROOT}" ] && {
+	rm -rf /tmp/luci-modulecache /tmp/luci-indexcache /tmp/luci-menu
+	/etc/init.d/rpcd restart 2>/dev/null || killall rpcd 2>/dev/null || true
+}
+exit 0
+endef
+
 IP ?= 192.168.1.1
 SSH_USER ?= root
 SSH_HOST := $(SSH_USER)@$(IP)

@@ -61,7 +61,7 @@ return view.extend({
 		root.appendChild(E('p', {}, [_('已接入 netifd/mtwifi-cfg 的真实配置路径；写入后提交、应用并复核，失败自动回滚。')]));
 
 		var out1 = outBox();
-		var dt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('设备'), _('信道'), _('频宽'), _('发射功率(dBm)'), _('国家'), _('状态'), _('操作')])]);
+		var dt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('设备'), _('信道'), _('频宽'), _('发射功率(%)'), _('国家'), _('状态'), _('操作')])]);
 		devices.forEach(function(d) {
 			var dis = String(d.disabled) === '1' || d.disabled === true;
 			var chan = textInput(d.channel == null ? 'auto' : d.channel, { maxlength: 16 });

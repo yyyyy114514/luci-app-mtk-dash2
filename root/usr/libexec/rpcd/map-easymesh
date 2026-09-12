@@ -226,7 +226,7 @@ local FIELDS = {
 	radio_band = { file = "1905d.cfg", key = "radio_band", label = "各射频频段", type = "string", d = "24G;5G;5G;" },
 	br_inf = { file = "1905d.cfg", key = "br_inf", label = "桥接接口", type = "string", d = "br-lan" },
 	al_inf = { file = "1905d.cfg", key = "al_inf", label = "AL 接口", type = "string", d = "ra0" },
-	eth_dev_name = { file = "1905d.cfg", key = "ethernet_dev_name", label = "以太网设备名（高级）", type = "string", d = "" },
+	eth_dev_name = { file = "1905d.cfg", key = "ethernet_dev_name", label = "以太网设备名（高级）", type = "string", optional = true, d = "" },
 	decrypt_th = { file = "1905d.cfg", key = "decrypt_fail_threshold", label = "解密失败阈值", type = "int", min = 1, max = 100, d = "10" },
 	gtk_rekey = { file = "1905d.cfg", key = "gtk_rekey_interval", label = "GTK 重键间隔 (s)", type = "int", min = 60, max = 86400, d = "3600" },
 	ob_wan_only = {
@@ -570,19 +570,56 @@ local function service_states()
 	return states
 end
 
+local ALID_FILE = "/etc/map/1905d.cfg"
+
+local function restore_alid()
+	local path = ALID_FILE
+	if not fs.access(path) then return nil end
+	local t = read(path)
+	if not t then return nil end
+	local saved = {}
+	for _, ln in ipairs(parse_file(t)) do
+		if ln.kind == "kv" and (ln.key:lower() == "map_controller_alid" or ln.key:lower() == "map_agent_alid") then
+			saved[#saved + 1] = { key = ln.key, value = stripq(ln.value) }
+		end
+	end
+	return saved
+end
+
 local function reload_services()
 	local present = {}
 	for _, s in ipairs(SERVICES) do
 		if fs.access("/etc/init.d/" .. s, "x") then present[#present + 1] = s end
 	end
-	if #present == 0 then return false, { note = "未检测到 MAP 服务" } end
-	local results, all_ok = {}, true
-	for _, s in ipairs(present) do
-		local code, out = sh("/etc/init.d/" .. s .. " restart")
-		if code ~= 0 then all_ok = false end
-		results[#results + 1] = { service = s, exit_code = code, ok = code == 0, output = clean(out) }
+	if #present > 0 then
+		local results, all_ok = {}, true
+		for _, s in ipairs(present) do
+			local code, out = sh("/etc/init.d/" .. s .. " restart")
+			if code ~= 0 then all_ok = false end
+			results[#results + 1] = { service = s, exit_code = code, ok = code == 0, output = clean(out) }
+		end
+		return all_ok, results
 	end
-	return all_ok, results
+	local wifi = bin("wifi")
+	if wifi then
+		local saved = restore_alid()
+		local code, out = sh(q(wifi) .. " reload")
+		local note = nil
+		if code == 0 and saved and #saved > 0 then
+			local restored = 0
+			for _, a in ipairs(saved) do
+				local c2, o2 = sh("sed -i " .. q("s/^" .. a.key .. "=.*/" .. a.key .. "=" .. a.value .. "/") .. " " .. q(ALID_FILE))
+				if c2 == 0 then restored = restored + 1 end
+			end
+			if restored < #saved then
+				note = "wifi reload 后 ALID 恢复不完整，请检查 /etc/map/1905d.cfg"
+			else
+				note = "wifi reload 已完成（固件会重跑 startwapp.sh，已恢复用户 ALID 设置）"
+			end
+		end
+		return code == 0, { { command = "wifi reload", exit_code = code, ok = code == 0, output = clean(out) } }, note
+	end
+	return true, nil, "配置已写入，但未检测到 init.d 服务或 wifi 命令，无法热重载，建议手动执行 wifi reload"
 end
 
 local function field_state(id)
@@ -860,13 +897,13 @@ local function set_field(args)
 		return { ok = false, error = "配置写入校验失败，已回滚", rollback = true }
 	end
 	if args.reload == true then
-		local okr, results = reload_services()
+		local okr, results, warn = reload_services()
 		if not okr then
 			rollback()
 			return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
 		end
 		os.remove(snap)
-		return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path, reloaded = true, results = results }
+		return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path, reloaded = true, results = results, warn = warn }
 	end
 	os.remove(snap)
 	return { ok = true, field = id, key = f.key, old = f.secret and "***" or cur, value = nv, file = path }
@@ -1398,14 +1435,14 @@ local function reset(args)
 		end
 		written[#written + 1] = file
 	end
-	local okr, results = reload_services()
+	local okr, results, warn = reload_services()
 	if not okr then
 		for _, f2 in ipairs(written) do
 			write_atomic(FILE_PATHS[f2] or (MAP_DIR .. "/" .. f2), originals[f2])
 		end
 		return { ok = false, error = "服务重载失败，配置已回滚", rollback = true, results = results }
 	end
-	return { ok = true, scope = scope, files = written }
+	return { ok = true, scope = scope, files = written, results = results, warn = warn }
 end
 
 -- compatibility wrappers (map.js legacy calls)
@@ -1414,8 +1451,24 @@ local function set_backhaul(a) return set_field({ field = "backhaul", value = a 
 local function set_policy(a) return set_field({ field = "steer", value = a and a.value, reload = a and a.reload }) end
 
 local function reload()
-	local okr, results = reload_services()
-	return { ok = okr, results = results }
+	local okr, results, warn = reload_services()
+	return { ok = okr, results = results, warn = warn }
+end
+
+-- rpcd exec plugin contract requires every method signature value to be a
+-- JSON object (blobmsg TABLE). luci.jsonc encodes empty Lua tables as [] (array),
+-- which rpcd rpc_plugin_parse_signature() rejects, silently dropping the method
+-- (observed as "RPC call to mtk-dash2/status failed: -32000 Object not found").
+local function ensure_object(methods)
+	local out = {}
+	for k, v in pairs(methods) do
+		if type(v) == "table" and next(v) == nil then
+			out[k] = { __sig = true }
+		else
+			out[k] = v
+		end
+	end
+	return out
 end
 
 local methods = {
@@ -1532,7 +1585,7 @@ local function dispatch(m, a)
 end
 local cmd = arg[1]
 if not cmd or cmd == "list" then
-	io.write(json.encode(methods))
+	io.write(json.encode(ensure_object(methods)))
 	io.write("\n")
 else
 	local m, argjson

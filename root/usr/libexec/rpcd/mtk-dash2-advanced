@@ -41,6 +41,23 @@ local function iface_ok(a)
 	return type(a) == "string" and a:match("^[%w_.-]+$") and a or nil
 end
 
+local function find_iface_section(ifname)
+	if not UCI then return nil end
+	local c, o = sh(UCI .. " show wireless")
+	if c ~= 0 then return nil end
+	for line in o:gmatch("[^\r\n]+") do
+		local sname, v = line:match("^wireless%.([%w_@%[%]%.%-]+)%.ifname%s*=%s*(.*)$")
+		if sname then
+			local val = v:gsub("^'(.*)'$", "%1")
+			if val == ifname then
+				local c2, t2 = sh(UCI .. " get wireless." .. q(sname))
+				if c2 == 0 and t2:find("wifi-iface", 1, true) then return sname end
+			end
+		end
+	end
+	return nil
+end
+
 local function safe_dir(path)
 	local it = fs.dir(path)
 	if not it then return function() return nil end end
@@ -67,15 +84,17 @@ local DEVICE_FIELDS = {
 	{ id = "channel", uci = "channel", label = "信道", category = "射频", type = "string" },
 	{ id = "htmode", uci = "htmode", label = "频宽模式", category = "射频", type = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
 	{ id = "band", uci = "band", label = "频段", category = "射频", type = "enum", values = { "2g", "5g", "6g" } },
-	{ id = "txpower", uci = "txpower", label = "发射功率 (dBm)", category = "功率", type = "integer", min = 0, max = 30 },
+	{ id = "txpower", uci = "txpower", label = "发射功率 (%)", category = "功率", type = "integer", min = 0, max = 100 },
 	{ id = "country", uci = "country", label = "国家码", category = "射频", type = "string" },
 	{ id = "beacon_int", uci = "beacon_int", label = "Beacon 间隔", category = "基础", type = "integer", min = 20, max = 1000 },
 	{ id = "dtim_period", uci = "dtim_period", label = "DTIM 周期", category = "基础", type = "integer", min = 1, max = 255 },
 	{ id = "twt", uci = "twt", label = "TWT", category = "节能", type = "enum", values = { "0", "1" } },
-	{ id = "mu_beamformer", uci = "mu_beamformer", label = "MU-MIMO Beamformer", category = "芯片", type = "boolean", reload = "reinstall" },
+	{ id = "mu_beamformer", uci = "mu_beamformer", label = "MU-MIMO Beamformer", category = "芯片", type = "boolean" },
 	{ id = "whnat", uci = "whnat", label = "无线硬件 NAT", category = "芯片", type = "boolean", reload = "reinstall" },
 	{ id = "dbdc_main", uci = "dbdc_main", label = "DBDC 主射频", category = "芯片", type = "boolean" },
 	{ id = "bandsteering", uci = "bandsteering", label = "Band Steering", category = "漫游", type = "boolean" },
+	{ id = "noscan", uci = "noscan", label = "禁用信道扫描 (40MHz 共存)", category = "射频", type = "boolean" },
+	{ id = "wapp", uci = "wapp", label = "MAP WAPP 服务", category = "MAP", type = "boolean" },
 }
 
 local IFACE_FIELDS = {
@@ -185,7 +204,7 @@ end
 
 local function apply(a)
 	if not UCI then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
-	if type(a) ~= "table" or type(a.device) ~= "string" or not a.device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	if type(a) ~= "table" or type(a.device) ~= "string" or not a.device:match("^[%w_.-]+$") then return { ok = false, error = "device 参数非法" } end
 	if type(a.values) ~= "table" or next(a.values) == nil then return { ok = false, error = "values 参数非法" } end
 	local c, typ = sh(UCI .. " get wireless." .. q(a.device))
 	if c ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c } end
@@ -198,7 +217,11 @@ local function apply(a)
 		if not target then return { ok = false, error = "iface 字段需要合法 iface 参数" } end
 		local ci, ti = sh(UCI .. " get wireless." .. q(target))
 		if ci ~= 0 or not ti:find("wifi-iface", 1, true) then
-			return { ok = false, error = "iface 不存在或不是 wifi-iface", exit_code = ci }
+			local found = find_iface_section(target)
+			if not found then
+				return { ok = false, error = "iface 不存在或不是 wifi-iface", exit_code = ci }
+			end
+			target = found
 		end
 	end
 	local before, changes = {}, {}
@@ -278,7 +301,12 @@ end
 local function power(a)
 	local i = iface_ok(a and a.iface) or first_iface()
 	if not i or not IWINFO then return { ok = false, error = "缺少可用接口或 iwinfo" } end
-	return parse_iwinfo(i)
+	local r = parse_iwinfo(i)
+	if r.ok and r.tx_power ~= nil then
+		r.value = r.tx_power
+		r.unit = "dBm"
+	end
+	return r
 end
 
 local function diagnostics()
@@ -309,7 +337,26 @@ local function diagnostics()
 			steps[#steps + 1] = { name = "MAP 配置 " .. p, exit_code = 0, ok = true, output = redact(t:sub(1, 1500)) }
 		end
 	end
+	if fs.access("/tmp/mtk/wifi/reboot_required", "f") then
+		steps[#steps + 1] = { name = "驱动重载提示", exit_code = 0, ok = true, output = "检测到 /tmp/mtk/wifi/reboot_required：驱动为 build-in，REINSTALL 键（whnat/BssidNum 等）变更后需重启设备生效" }
+	end
 	return { ok = true, redacted = true, iface = i, collected = os.date("%Y-%m-%dT%H:%M:%S"), steps = steps, map_files = mapcfg, probes = runtime_probes() }
+end
+
+-- rpcd exec plugin contract requires every method signature value to be a
+-- JSON object (blobmsg TABLE). luci.jsonc encodes empty Lua tables as [] (array),
+-- which rpcd rpc_plugin_parse_signature() rejects, silently dropping the method
+-- (observed as "RPC call to mtk-dash2/status failed: -32000 Object not found").
+local function ensure_object(methods)
+	local out = {}
+	for k, v in pairs(methods) do
+		if type(v) == "table" and next(v) == nil then
+			out[k] = { __sig = true }
+		else
+			out[k] = v
+		end
+	end
+	return out
 end
 
 local methods = {
@@ -333,7 +380,7 @@ end
 -- manual testing: <script> <method> '<json>' (args via argv instead)
 local cmd = arg[1]
 if not cmd or cmd == "list" then
-	io.write(json.encode(methods) .. "\n")
+	io.write(json.encode(ensure_object(methods)) .. "\n")
 else
 	local m, argjson
 	if cmd == "call" then

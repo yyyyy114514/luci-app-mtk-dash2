@@ -682,7 +682,7 @@ local DEVICE_VALUE_FIELDS = {
 	channel = { kind = "string", max = 16, check = function(v) return v == "auto" or v:match("^%d+$") and tonumber(v) >= 0 and tonumber(v) <= 196 end },
 	htmode = { kind = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
 	band = { kind = "enum", values = { "2g", "5g", "6g" } },
-	txpower = { kind = "int", min = 0, max = 30 },
+	txpower = { kind = "int", min = 0, max = 100 },
 	country = { kind = "country" },
 	beacon_int = { kind = "int", min = 20, max = 1000 },
 	dtim_period = { kind = "int", min = 1, max = 255 },
@@ -691,6 +691,8 @@ local DEVICE_VALUE_FIELDS = {
 	whnat = { kind = "bool" },
 	dbdc_main = { kind = "bool" },
 	bandsteering = { kind = "bool" },
+	noscan = { kind = "bool" },
+	wapp = { kind = "bool" },
 }
 local VIF_VALUE_FIELDS = {
 	mode = { kind = "enum", values = { "ap", "sta" } },
@@ -862,7 +864,7 @@ local function update_device(args)
 	args = args or {}
 	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
 	local device = args.device
-	if type(device) ~= "string" or not device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	if type(device) ~= "string" or not device:match("^[%w_.-]+$") then return { ok = false, error = "device 参数非法" } end
 	if type(args.values) ~= "table" or next(args.values) == nil then return { ok = false, error = "values 参数非法" } end
 	local c0, typ = sh(UCI_BIN .. " get wireless." .. device)
 	if c0 ~= 0 or not typ:find("wifi-device", 1, true) then return { ok = false, error = "device 不存在或不是 wifi-device", exit_code = c0 } end
@@ -939,7 +941,7 @@ local function add_vif(args)
 	args = args or {}
 	if not UCI_BIN then return { ok = false, error = "缺少 uci 命令", exit_code = 127 } end
 	local device = args.device
-	if type(device) ~= "string" or not device:match("^radio%d+$") then return { ok = false, error = "device 参数非法" } end
+	if type(device) ~= "string" or not device:match("^[%w_.-]+$") then return { ok = false, error = "device 参数非法" } end
 	local mode = args.mode == "sta" and "sta" or "ap"
 	local ssid = args.ssid
 	local enc = args.encryption or "none"
@@ -1013,7 +1015,7 @@ end
 local function set_radio(args)
 	args = args or {}
 	local device = args.device
-	if type(device) ~= "string" or not device:match("^radio%d+$") then
+	if type(device) ~= "string" or not device:match("^[%w_.-]+$") then
 		return { ok = false, error = "device 参数非法" }
 	end
 	if type(args.enabled) ~= "boolean" then
@@ -1261,17 +1263,31 @@ end
 local function merge_restore(arc_content, cur_content)
 	local arc_lines = split_lines(arc_content or "")
 	local cur_lines = split_lines(cur_content or "")
+	local cur_index = {}
+	for i, cl in ipairs(cur_lines) do
+		local key = cl:match("^%s*option%s+([%w_]+)") or cl:match("^%s*([%w_.-]+)%s*=")
+		if key then
+			if cur_index[key] == nil then cur_index[key] = {} end
+			cur_index[key][#cur_index[key] + 1] = cl
+		end
+	end
 	local out, skipped = {}, {}
-	for i, al in ipairs(arc_lines) do
+	for _, al in ipairs(arc_lines) do
 		if al:find(REDACTED, 1, true) then
-			local cl = cur_lines[i]
-			if cl and not cl:find(REDACTED, 1, true) and (cl:match("^%s*option%s+[%w_]+") or cl:match("^%s*[%w_.-]+%s*=")) then
-				out[#out + 1] = cl
+			local key = al:match("option%s+([%w_]+)") or al:match("^%s*([%w_.-]+)%s*=")
+			local pick = nil
+			if key and cur_index[key] then
+				for _, cl in ipairs(cur_index[key]) do
+					if not cl:find(REDACTED, 1, true) then pick = cl break end
+				end
+			end
+			if pick then
+				out[#out + 1] = pick
 			else
 				out[#out + 1] = al
 				skipped[#skipped + 1] = {
-					line = i,
-					key = al:match("option%s+([%w_]+)") or al:match("^%s*([%w_.-]+)%s*=") or "?",
+					line = key and key or al:sub(1, 40),
+					key = key or "?",
 					reason = "当前配置无对应真实值，保留脱敏占位，需重新设置",
 				}
 			end
@@ -1431,6 +1447,22 @@ local function rollback(args)
 	return res
 end
 
+-- rpcd exec plugin contract requires every method signature value to be a
+-- JSON object (blobmsg TABLE). luci.jsonc encodes empty Lua tables as [] (array),
+-- which rpcd rpc_plugin_parse_signature() rejects, silently dropping the method
+-- (observed as "RPC call to mtk-dash2/status failed: -32000 Object not found").
+local function ensure_object(methods)
+	local out = {}
+	for k, v in pairs(methods) do
+		if type(v) == "table" and next(v) == nil then
+			out[k] = { __sig = true }
+		else
+			out[k] = v
+		end
+	end
+	return out
+end
+
 function list_methods()
 	return {
 		status = {},
@@ -1482,7 +1514,7 @@ end
 -- manual testing: <script> <method> '<json>' (args via argv instead)
 local cmd = arg[1]
 if not cmd or cmd == "list" then
-	io.write(json.encode(list_methods()))
+	io.write(json.encode(ensure_object(list_methods())))
 	io.write("\n")
 else
 	local method, argjson

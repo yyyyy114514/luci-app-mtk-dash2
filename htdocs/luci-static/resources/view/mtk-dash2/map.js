@@ -122,7 +122,10 @@ return view.extend({
 			if (!window.confirm(_('确认重启 MAP 服务（mapd/wapp/bs20）？组网会短暂中断。'))) return;
 			msg(reloadMsg, 'notice', _('正在重启服务...'));
 			reloadSvc().then(function(r) {
-				if (r && r.ok) msg(reloadMsg, 'success', _('MAP 服务已重启'));
+				if (r && r.ok) {
+					if (r.warn) msg(reloadMsg, 'notice', r.warn);
+					else msg(reloadMsg, 'success', _('MAP 服务已重启'));
+				}
 				else msg(reloadMsg, 'error', (r && r.error) || _('部分服务重启失败，详见诊断页'));
 			}).catch(function(e) { msg(reloadMsg, 'error', String(e)); });
 		}}, [_('重启 MAP 服务')]);
