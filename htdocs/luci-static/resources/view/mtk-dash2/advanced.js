@@ -9,10 +9,10 @@ var readRegister = rpc.declare({ object: 'mtk-dash2-advanced', method: 'read_reg
 
 function inputFor(f) {
 	if (f.type === 'enum' && Array.isArray(f.values))
-		return E('select', { 'class': 'cbi-input-select', 'data-field': f.id }, f.values.map(function(v) { return E('option', { value: String(v) }, [String(v)]); }));
+		return E('select', { 'class': 'cbi-input-select', style: 'min-width:110px', 'data-field': f.id }, f.values.map(function(v) { return E('option', { value: String(v) }, [String(v)]); }));
 	if (f.type === 'boolean')
-		return E('select', { 'class': 'cbi-input-select', 'data-field': f.id }, [E('option', { value: '1' }, [_('启用')]), E('option', { value: '0' }, [_('禁用')])]);
-	var attrs = { 'class': 'cbi-input-text', 'data-field': f.id };
+		return E('select', { 'class': 'cbi-input-select', style: 'min-width:110px', 'data-field': f.id }, [E('option', { value: '1' }, [_('启用')]), E('option', { value: '0' }, [_('禁用')])]);
+	var attrs = { 'class': 'cbi-input-text', style: 'width:180px', 'data-field': f.id };
 	if (f.min != null) attrs.placeholder = String(f.min) + ' ~ ' + String(f.max == null ? '' : f.max);
 	return E('input', attrs);
 }

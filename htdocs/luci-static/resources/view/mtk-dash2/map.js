@@ -43,20 +43,20 @@ return view.extend({
 		if (!meta || !st || !st.present) return null;
 		var input;
 		if (meta.type === 'enum') {
-			input = E('select', { 'class': 'cbi-input-select', style: 'min-width:220px' });
+			input = E('select', { 'class': 'cbi-input-select', style: 'min-width:110px' });
 			(meta.options || []).forEach(function(o) {
 				var opt = E('option', { 'value': o.value }, [o.label]);
 				if (String(st.value) == o.value) opt.selected = true;
 				input.appendChild(opt);
 			});
 		} else if (meta.secret) {
-			input = E('input', { 'class': 'cbi-input-text', type: 'password', style: 'width:220px', maxlength: 63,
+			input = E('input', { 'class': 'cbi-input-text', type: 'password', style: 'width:150px', maxlength: 63,
 				placeholder: st.set ? _('已设置，留空不修改') : _('未设置') });
 		} else if (meta.type === 'int') {
-			input = E('input', { 'class': 'cbi-input-text', type: 'number', style: 'width:160px',
+			input = E('input', { 'class': 'cbi-input-text', type: 'number', style: 'width:110px',
 				min: meta.min, max: meta.max, value: st.value != null ? String(st.value) : '' });
 		} else {
-			input = E('input', { 'class': 'cbi-input-text', style: 'width:220px', maxlength: meta.len || 64,
+			input = E('input', { 'class': 'cbi-input-text', style: 'width:160px', maxlength: meta.len || 64,
 				value: st.value != null ? String(st.value) : '' });
 		}
 		if (!writable) input.disabled = true;
@@ -80,7 +80,7 @@ return view.extend({
 		}}, [meta.secret ? _('保存') : _('应用')]);
 		if (!writable) btn.disabled = true;
 		return E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [meta.label]),
+			E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [meta.label]),
 			E('div', { 'class': 'cbi-value-field' }, [input, ' ', btn])
 		]);
 	},
@@ -178,11 +178,11 @@ return view.extend({
 		if (!devIface) { verBtn.disabled = true; rldBtn.disabled = true; pbcBtn.disabled = true; }
 		root.appendChild(section(_('设备信息'),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('无线接口')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('无线接口')]),
 				E('div', { 'class': 'cbi-value-field' }, [ devIface ? E('code', {}, [devIface]) : E('span', { 'class': 'alert-message warning' }, [_('未探测到无线接口')]) ])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('wapp 控制')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('wapp 控制')]),
 				E('div', { 'class': 'cbi-value-field' }, [verBtn, ' ', rldBtn, ' ', pbcBtn])
 			]),
 			verBox,
@@ -286,11 +286,11 @@ return view.extend({
 			}).catch(function(e) { msg(bhMsg, 'error', String(e)); });
 		}
 
-		var connSsid = E('input', { 'class': 'cbi-input-text', style: 'width:220px', placeholder: _('点击扫描结果中的"连接"自动填入') });
+		var connSsid = E('input', { 'class': 'cbi-input-text', style: 'width:170px', placeholder: _('点击扫描结果中的"连接"自动填入') });
 		var connAuth = E('select', { 'class': 'cbi-input-select' });
 		['OPEN', 'WPA2PSK', 'WPA3PSK', 'WPA2PSKWPA3PSK'].forEach(function(a) { connAuth.appendChild(E('option', { 'value': a }, [a])); });
 		var connEnc = E('input', { 'class': 'cbi-input-text', style: 'width:100px', value: 'AES' });
-		var connKey = E('input', { 'class': 'cbi-input-text', type: 'password', style: 'width:200px', placeholder: _('可留空表示不修改') });
+		var connKey = E('input', { 'class': 'cbi-input-text', type: 'password', style: 'width:140px', placeholder: _('可留空表示不修改') });
 		var connectBtn = E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
 			ev.preventDefault();
 			var iface = bhIface.value;
@@ -346,25 +346,25 @@ return view.extend({
 
 		root.appendChild(section(_('回程操作'),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('回程接口')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('回程接口')]),
 				E('div', { 'class': 'cbi-value-field' }, [bhIface, ' ', stBtn, ' ', scanBtn])
 			]),
 			bhStateBox,
 			scanBox,
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('连接网络')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('连接网络')]),
 				E('div', { 'class': 'cbi-value-field' }, [connSsid])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('认证与密钥')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('认证与密钥')]),
 				E('div', { 'class': 'cbi-value-field' }, [connAuth, ' ', E('label', {}, [_('加密：')]), connEnc, ' ', E('label', {}, [_('密钥：')]), connKey, ' ', connectBtn])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('断开回程')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('断开回程')]),
 				E('div', { 'class': 'cbi-value-field' }, [disconnBtn])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('回程类型')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('回程类型')]),
 				E('div', { 'class': 'cbi-value-field' }, [bhTypeSel, ' ', bhTypeBtn])
 			]),
 			bhMsg
@@ -375,7 +375,7 @@ return view.extend({
 		var steerIface = E('select', { 'class': 'cbi-input-select' });
 		steerIface.appendChild(E('option', { 'value': '' }, [_('自动（首个无线接口）')]));
 		if (devIface) steerIface.appendChild(E('option', { 'value': devIface }, [devIface]));
-		var steerMac = E('input', { 'class': 'cbi-input-text', style: 'width:220px', placeholder: 'AA:BB:CC:DD:EE:FF' });
+		var steerMac = E('input', { 'class': 'cbi-input-text', style: 'width:170px', placeholder: 'AA:BB:CC:DD:EE:FF' });
 		var steerBtn = E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
 			ev.preventDefault();
 			var mac = steerMac.value.trim();
@@ -410,11 +410,11 @@ return view.extend({
 
 		root.appendChild(section(_('操作'),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('引导 STA 漫游 (steer_sta)')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('引导 STA 漫游 (steer_sta)')]),
 				E('div', { 'class': 'cbi-value-field' }, [steerIface, ' ', steerMac, ' ', steerBtn])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title', style: 'min-width:260px' }, [_('分组重置')]),
+				E('label', { 'class': 'cbi-value-title', style: 'min-width:170px' }, [_('分组重置')]),
 				E('div', { 'class': 'cbi-value-field' }, [resetSel, ' ', resetBtn])
 			]),
 			opMsg

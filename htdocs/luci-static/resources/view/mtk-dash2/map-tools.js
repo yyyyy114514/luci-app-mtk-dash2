@@ -45,7 +45,7 @@ function section(title) {
 }
 
 function textInput(placeholder, width) {
-	return E('input', { 'class': 'cbi-input-text', placeholder: placeholder || '', style: 'width:' + (width || 200) + 'px' });
+	return E('input', { 'class': 'cbi-input-text', placeholder: placeholder || '', style: 'width:' + (width || 150) + 'px' });
 }
 
 function sel(options) {
@@ -66,7 +66,7 @@ function fieldRow(label) {
 		children.push(f);
 	});
 	return E('div', { 'class': 'cbi-value' }, [
-		E('label', { 'class': 'cbi-value-title', style: 'min-width:200px' }, [label]),
+		E('label', { 'class': 'cbi-value-title', style: 'min-width:140px' }, [label]),
 		E('div', { 'class': 'cbi-value-field' }, children)
 	]);
 }
@@ -134,10 +134,10 @@ return view.extend({
 			_('DPP 操作使用无线接口 %s，结果统一输出到上方输出区。').format(iface)
 		]));
 
-		var uri = textInput('DPP:...', 380);
-		var bsChan = textInput(_('chan'), 90), bsMac = textInput(_('mac'), 150),
-			bsInfo = textInput(_('info'), 150), bsCurve = textInput(_('curve'), 120),
-			bsKey = textInput(_('key'), 150);
+		var uri = textInput('DPP:...', 300);
+		var bsChan = textInput(_('chan'), 80), bsMac = textInput(_('mac'), 120),
+			bsInfo = textInput(_('info'), 120), bsCurve = textInput(_('curve'), 100),
+			bsKey = textInput(_('key'), 120);
 		dpp.appendChild(E('h4', {}, [_('快速入网')]));
 		dpp.appendChild(fieldRow(_('DPP URI'),
 			uri,
@@ -154,7 +154,7 @@ return view.extend({
 			})
 		));
 
-		var bId = textInput('id', 100);
+		var bId = textInput('id', 90);
 		dpp.appendChild(E('h4', {}, [_('Bootstrap 管理')]));
 		dpp.appendChild(fieldRow(_('Bootstrap ID'), bId,
 			act(_('信息'), _('确认查询该 Bootstrap 信息？'), function() { return dppBootstrapInfo(bId.value.trim()); }),
@@ -162,7 +162,7 @@ return view.extend({
 			act(_('删除'), _('确认删除该 Bootstrap？'), function() { return dppBootstrapRemove(bId.value.trim()); })
 		));
 
-		var freq = textInput('2412', 100);
+		var freq = textInput('2412', 90);
 		dpp.appendChild(E('h4', {}, [_('会话')]));
 		dpp.appendChild(fieldRow(_('启动 / 监听 / 停止'),
 			act(_('启动 DPP'), _('确认启动 DPP 会话？'), function() { return dppStart(); }),
@@ -175,7 +175,7 @@ return view.extend({
 			act(_('停止监听'), _('确认停止 DPP 监听？'), function() { return dppStopListen(); })
 		));
 
-		var cfgCurve = textInput(_('curve'), 120), cfgKey = textInput(_('key'), 160), cfgId = textInput('id', 100);
+		var cfgCurve = textInput(_('curve'), 100), cfgKey = textInput(_('key'), 130), cfgId = textInput('id', 90);
 		dpp.appendChild(E('h4', {}, [_('Configurator')]));
 		dpp.appendChild(fieldRow(_('新建'), cfgCurve, cfgKey,
 			act(_('添加'), _('确认添加 DPP Configurator？'), function() { return dppCfgAdd(cfgCurve.value.trim(), cfgKey.value.trim()); })
@@ -186,7 +186,7 @@ return view.extend({
 			act(_('删除'), _('确认删除该 Configurator？'), function() { return dppCfgRemove(cfgId.value.trim()); })
 		));
 
-		var peer = textInput(_('peer'), 100), own = textInput(_('own'), 100);
+		var peer = textInput(_('peer'), 90), own = textInput(_('own'), 90);
 		dpp.appendChild(E('h4', {}, [_('认证')]));
 		dpp.appendChild(fieldRow(_('Auth Init'), peer, own,
 			act(_('发起认证'), function() {
@@ -200,7 +200,7 @@ return view.extend({
 			act(_('停止'), _('确认停止 DPP Controller？'), function() { return dppCtrlStop(); })
 		));
 
-		var pkexCode = textInput(_('code'), 200), pkexId = textInput('id', 100);
+		var pkexCode = textInput(_('code'), 160), pkexId = textInput('id', 90);
 		dpp.appendChild(E('h4', {}, [_('PKEX')]));
 		dpp.appendChild(fieldRow(_('PKEX Code'), pkexCode,
 			act(_('添加'), function() {
@@ -212,7 +212,7 @@ return view.extend({
 			act(_('删除'), _('确认删除该 PKEX？'), function() { return dppPkexRemove(pkexId.value.trim()); })
 		));
 
-		var chirpEn = sel([['1', _('启用'), true], ['0', _('禁用')]]), chirpCh = textInput(_('chan_list'), 220);
+		var chirpEn = sel([['1', _('启用'), true], ['0', _('禁用')]]), chirpCh = textInput(_('chan_list'), 180);
 		dpp.appendChild(E('h4', {}, [_('Chirp')]));
 		dpp.appendChild(fieldRow(_('信道启用'), chirpEn, chirpCh,
 			act(_('应用'), _('确认应用 Chirp 信道设置？'), function() {
@@ -223,7 +223,7 @@ return view.extend({
 			act(_('Chirp 通知'), _('确认执行 Chirp 通知？'), function() { return dppChirpNotif(); })
 		));
 
-		var onboard = textInput(_('type'), 160), devPath = textInput(_('path'), 240);
+		var onboard = textInput(_('type'), 130), devPath = textInput(_('path'), 200);
 		dpp.appendChild(E('h4', {}, [_('其他')]));
 		dpp.appendChild(fieldRow(_('Onboard 类型'), onboard,
 			act(_('应用'), function() {
@@ -250,8 +250,8 @@ return view.extend({
 		root.appendChild(dpp);
 
 		/* BTM 主动漫游 */
-		var btmMac = textInput(_('mac'), 160), btmEss = sel([['0', '0', true], ['1', '1']]),
-			btmTimer = textInput(_('timer'), 100), btmUrl = textInput(_('url'), 260);
+		var btmMac = textInput(_('mac'), 130), btmEss = sel([['0', '0', true], ['1', '1']]),
+			btmTimer = textInput(_('timer'), 90), btmUrl = textInput(_('url'), 210);
 		root.appendChild(section(_('BTM 主动漫游'),
 			fieldRow(_('BTM 请求'), btmMac, btmEss, btmTimer, btmUrl,
 				act(_('发送'), function() {
@@ -264,9 +264,9 @@ return view.extend({
 		));
 
 		/* WNM */
-		var wIface = textInput(iface, 110), wMac = textInput(_('mac'), 160), wUrl = textInput(_('url'), 260);
-		var w2Iface = textInput(iface, 110), w2Mac = textInput(_('mac'), 160),
-			w2Code = textInput(_('code'), 100), w2Delay = textInput(_('delay'), 100), w2Url = textInput(_('url'), 260);
+		var wIface = textInput(iface, 100), wMac = textInput(_('mac'), 130), wUrl = textInput(_('url'), 210);
+		var w2Iface = textInput(iface, 100), w2Mac = textInput(_('mac'), 130),
+			w2Code = textInput(_('code'), 90), w2Delay = textInput(_('delay'), 90), w2Url = textInput(_('url'), 210);
 		root.appendChild(section(_('WNM'),
 			fieldRow(_('wnm_req'), wIface, wMac, wUrl,
 				act(_('发送'), function() {
@@ -287,8 +287,8 @@ return view.extend({
 		));
 
 		/* QoS 流分类 / 代理 ARP */
-		var qIface = textInput(iface, 110), qMac = textInput(_('mac'), 160),
-			qExc = textInput(_('dscp_exception'), 100), qRange = textInput(_('dscp_range'), 120);
+		var qIface = textInput(iface, 100), qMac = textInput(_('mac'), 130),
+			qExc = textInput(_('dscp_exception'), 90), qRange = textInput(_('dscp_range'), 100);
 		var family = sel([['ipv4', 'ipv4', true], ['ipv6', 'ipv6']]);
 		root.appendChild(section(_('QoS 流分类'),
 			fieldRow(_('qos_map'), qIface, qMac, qExc, qRange,

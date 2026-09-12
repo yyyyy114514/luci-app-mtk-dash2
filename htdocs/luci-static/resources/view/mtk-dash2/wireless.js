@@ -128,11 +128,12 @@ return view.extend({
 			var out3 = outBox();
 			var dsel = select(devices.map(function(d) { return d.name; }), devices[0].name);
 			var msel = select(['ap', 'sta'], 'ap');
-			var ssidIn = textInput('', { maxlength: 32, placeholder: '新 SSID' });
+			var ssidIn = textInput('', { maxlength: 32, placeholder: '新 SSID', style: 'width:130px' });
 			var encSel = select(ENCS, 'psk2+ccmp');
-			var keyIn = textInput('', { type: 'password', maxlength: 63, placeholder: '密钥 8-63 位' });
-			var netIn = textInput('lan', { maxlength: 64 });
-			var bssidIn = textInput('', { maxlength: 17, placeholder: _('可选，STA 锁定上游 BSSID') });
+			var keyIn = textInput('', { type: 'password', maxlength: 63, placeholder: '密钥 8-63 位', style: 'width:130px' });
+			var netIn = textInput('lan', { maxlength: 64, style: 'width:110px' });
+			var bssidIn = textInput('', { maxlength: 17, placeholder: _('可选，STA 锁定上游 BSSID'), style: 'width:170px' });
+			[dsel, msel, encSel].forEach(function(s) { s.style.minWidth = '96px'; });
 			root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('添加接口 (AP/MBSSID 或 STA/APCLI)')]), E('div', { 'class': 'cbi-value' }, [_('设备：'), dsel, '　', _('模式：'), msel, '　', _('SSID：'), ssidIn, '　', _('加密：'), encSel, '　', _('密钥：'), keyIn, '　', _('网络：'), netIn, '　', _('BSSID：'), bssidIn]),
 				E('p', { 'class': 'alert-message notice' }, [_('每个射频仅支持 1 个 STA/APCLI 接口；AP 上限 16。')]),
 				E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
