@@ -15,6 +15,7 @@ var applyAll = rpc.declare({ object: 'mtk-dash2', method: 'apply_wireless' });
 
 var ENCS = ['none', 'psk2+ccmp', 'psk2+tkip+ccmp', 'psk-mixed', 'sae', 'sae-mixed', 'owe', 'psk2', 'psk', 'psk-mixed+ccmp'];
 var HTMODES = ['HT20', 'HT40', 'VHT20', 'VHT40', 'VHT80', 'VHT160', 'HE20', 'HE40', 'HE80', 'HE160'];
+var COUNTRY_LIST = ['DB', 'AE', 'AL', 'AR', 'AT', 'AM', 'AU', 'AZ', 'BE', 'BH', 'BY', 'BO', 'BR', 'BN', 'BG', 'BZ', 'CA', 'CH', 'CL', 'CN', 'CO', 'CR', 'CY', 'CZ', 'DE', 'DK', 'DO', 'DZ', 'EC', 'EG', 'EE', 'ES', 'FI', 'FR', 'GE', 'GB', 'GR', 'GT', 'HN', 'HK', 'HU', 'HR', 'IS', 'IN', 'ID', 'IR', 'IE', 'IL', 'IT', 'JP', 'JO', 'KP', 'KR', 'KW', 'KZ', 'LB', 'LI', 'LT', 'LU', 'LV', 'MA', 'MC', 'MO', 'MK', 'MX', 'MY', 'NL', 'NO', 'NZ', 'OM', 'PA', 'PE', 'PH', 'PL', 'PK', 'PT', 'PR', 'QA', 'RO', 'RU', 'SA', 'SG', 'SK', 'SI', 'SV', 'SE', 'SY', 'TH', 'TN', 'TR', 'TT', 'TW', 'UA', 'US', 'UY', 'UZ', 'VE', 'VN', 'YE', 'ZA', 'ZW'];
 
 function select(options, current) {
 	var s = E('select', { 'class': 'cbi-input-select' });
@@ -67,7 +68,7 @@ return view.extend({
 			var chan = textInput(d.channel == null ? 'auto' : d.channel, { maxlength: 16 });
 			var htm = selectLive(HTMODES, d.htmode || '');
 			var pwr = textInput(d.txpower == null ? '' : d.txpower, { maxlength: 3 });
-			var cty = textInput(d.country == null ? '' : d.country, { maxlength: 2 });
+			var cty = selectLive(COUNTRY_LIST, d.country || '');
 			var actions = E('td', {}, []);
 			if (canW) {
 				actions.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
@@ -88,7 +89,7 @@ return view.extend({
 		root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('无线设备')]), dt, out1]));
 
 		var out2 = outBox();
-		var it = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('隔离'), _('11k'), _('11r'), _('MAC 过滤'), _('操作')])]);
+		var it = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('11k'), _('11r'), _('MAC 过滤'), _('操作')])]);
 		ifaces.forEach(function(f) {
 			var enc = f.encryption || 'none';
 			var ssid = textInput(f.ssid, { maxlength: 32 });
@@ -97,8 +98,6 @@ return view.extend({
 			var net = textInput(f.network, { maxlength: 64 });
 			var hid = E('input', { type: 'checkbox' });
 			if (String(f.hidden) === '1' || f.hidden === true || f.hidden === 1) hid.checked = true;
-			var iso = E('input', { type: 'checkbox' });
-			if (String(f.isolate) === '1' || f.isolate === true || f.isolate === 1) iso.checked = true;
 			var k11 = E('input', { type: 'checkbox' });
 			if (String(f.ieee80211k) === '1' || f.ieee80211k === true) k11.checked = true;
 			var r11 = E('input', { type: 'checkbox' });
@@ -111,7 +110,7 @@ return view.extend({
 						window.alert(_('切换到加密模式时必须填写密钥（8-63 位）。'));
 						return;
 					}
-					var values = { ssid: ssid.value, encryption: sel.value, network: net.value, hidden: hid.checked ? '1' : '0', isolate: iso.checked ? '1' : '0', macfilter: mf.value, ieee80211k: k11.checked ? '1' : '0', ieee80211r: r11.checked ? '1' : '0' };
+					var values = { ssid: ssid.value, encryption: sel.value, network: net.value, hidden: hid.checked ? '1' : '0', macfilter: mf.value, ieee80211k: k11.checked ? '1' : '0', ieee80211r: r11.checked ? '1' : '0' };
 					if (key.value) { values.key = key.value; }
 					if (!window.confirm(_('确认应用接口配置 ') + String(f.name) + _('？该接口的无线连接可能短暂中断。'))) return;
 					updateVif(f.name, values, true).then(function(r) { setOut(out2, r); }).catch(function(e) { setOut(out2, { error: String(e) }); });
@@ -121,7 +120,7 @@ return view.extend({
 					deleteVif(f.name, true).then(function(r) { setOut(out2, r); }).catch(function(e) { setOut(out2, { error: String(e) }); });
 				}}, [_('删除')]));
 			}
-			it.appendChild(E('tr', {}, [E('td', {}, [String(f.name)]), E('td', {}, [f.mode === 'sta' ? 'STA' : 'AP']), E('td', {}, [ssid]), E('td', {}, [sel]), E('td', {}, [key]), E('td', {}, [net]), E('td', {}, [hid]), E('td', {}, [iso]), E('td', {}, [k11]), E('td', {}, [r11]), E('td', {}, [mf]), acts]));
+			it.appendChild(E('tr', {}, [E('td', {}, [String(f.name)]), E('td', {}, [f.mode === 'sta' ? 'STA' : 'AP']), E('td', {}, [ssid]), E('td', {}, [sel]), E('td', {}, [key]), E('td', {}, [net]), E('td', {}, [hid]), E('td', {}, [k11]), E('td', {}, [r11]), E('td', {}, [mf]), acts]));
 		});
 		root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('无线接口 / MBSSID')]), it, out2]));
 

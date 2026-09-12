@@ -80,12 +80,24 @@ local function redact(s)
 	return s
 end
 
+local COUNTRY_LIST = {
+	"DB", "AE", "AL", "AR", "AT", "AM", "AU", "AZ", "BE", "BH", "BY", "BO",
+	"BR", "BN", "BG", "BZ", "CA", "CH", "CL", "CN", "CO", "CR", "CY", "CZ",
+	"DE", "DK", "DO", "DZ", "EC", "EG", "EE", "ES", "FI", "FR", "GE", "GB",
+	"GR", "GT", "HN", "HK", "HU", "HR", "IS", "IN", "ID", "IR", "IE", "IL",
+	"IT", "JP", "JO", "KP", "KR", "KW", "KZ", "LB", "LI", "LT", "LU", "LV",
+	"MA", "MC", "MO", "MK", "MX", "MY", "NL", "NO", "NZ", "OM", "PA", "PE",
+	"PH", "PL", "PK", "PT", "PR", "QA", "RO", "RU", "SA", "SG", "SK", "SI",
+	"SV", "SE", "SY", "TH", "TN", "TR", "TT", "TW", "UA", "US", "UY", "UZ",
+	"VE", "VN", "YE", "ZA", "ZW",
+}
+
 local DEVICE_FIELDS = {
 	{ id = "channel", uci = "channel", label = "信道", category = "射频", type = "string" },
 	{ id = "htmode", uci = "htmode", label = "频宽模式", category = "射频", type = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
-	{ id = "band", uci = "band", label = "频段", category = "射频", type = "enum", values = { "2g", "5g", "6g" } },
+	{ id = "band", uci = "band", label = "频段", category = "射频", type = "enum", values = { "2g", "5g" } },
 	{ id = "txpower", uci = "txpower", label = "发射功率 (%)", category = "功率", type = "integer", min = 0, max = 100 },
-	{ id = "country", uci = "country", label = "国家码", category = "射频", type = "string" },
+	{ id = "country", uci = "country", label = "国家码", category = "射频", type = "enum", values = COUNTRY_LIST },
 	{ id = "beacon_int", uci = "beacon_int", label = "Beacon 间隔", category = "基础", type = "integer", min = 20, max = 1000 },
 	{ id = "dtim_period", uci = "dtim_period", label = "DTIM 周期", category = "基础", type = "integer", min = 1, max = 255 },
 	{ id = "twt", uci = "twt", label = "TWT", category = "节能", type = "enum", values = { "0", "1" } },
@@ -100,7 +112,6 @@ local DEVICE_FIELDS = {
 local IFACE_FIELDS = {
 	{ id = "ssid", uci = "ssid", label = "SSID", category = "基础", type = "string" },
 	{ id = "hidden", uci = "hidden", label = "隐藏 SSID", category = "基础", type = "boolean" },
-	{ id = "isolate", uci = "isolate", label = "客户端隔离", category = "基础", type = "boolean" },
 	{ id = "wmm", uci = "wmm", label = "WMM", category = "QoS", type = "boolean" },
 	{ id = "ieee80211k", uci = "ieee80211k", label = "802.11k", category = "漫游", type = "boolean" },
 	{ id = "ieee80211r", uci = "ieee80211r", label = "802.11r", category = "漫游", type = "boolean" },
@@ -113,8 +124,6 @@ local IFACE_FIELDS = {
 	{ id = "kicklow", uci = "kicklow", label = "弱信号踢除 RSSI", category = "漫游", type = "integer", min = -100, max = 0 },
 	{ id = "assocthres", uci = "assocthres", label = "关联阈值", category = "漫游", type = "integer", min = 0, max = 65535 },
 	{ id = "steeringthresold", uci = "steeringthresold", label = "引导阈值", category = "漫游", type = "integer", min = -100, max = 0 },
-	{ id = "mumimo_dl", uci = "mumimo_dl", label = "DL MU-MIMO", category = "芯片", type = "boolean" },
-	{ id = "mumimo_ul", uci = "mumimo_ul", label = "UL MU-MIMO", category = "芯片", type = "boolean" },
 	{ id = "ofdma_dl", uci = "ofdma_dl", label = "DL OFDMA", category = "芯片", type = "boolean" },
 	{ id = "ofdma_ul", uci = "ofdma_ul", label = "UL OFDMA", category = "芯片", type = "boolean" },
 	{ id = "amsdu", uci = "amsdu", label = "A-MSDU", category = "芯片", type = "boolean" },
@@ -192,7 +201,6 @@ local function valid(f, v)
 		for _, x in ipairs(f.values) do if x == v then return v end end
 		return nil
 	end
-	if f.id == "country" and not v:match("^%u%u$") then return nil end
 	if f.id == "channel" and not (v == "auto" or v:match("^%d+$")) then return nil end
 	if f.id == "maclist" or f.id == "steeringbssid" then
 		local count = 0

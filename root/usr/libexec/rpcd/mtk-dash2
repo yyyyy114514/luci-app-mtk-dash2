@@ -678,12 +678,23 @@ local ENC_WHITELIST = {
 	"psk+tkip+aes", "psk-mixed+ccmp", "psk-mixed+aes", "psk-mixed+tkip",
 	"psk-mixed+tkip+ccmp", "psk-mixed+tkip+aes", "sae", "sae-mixed", "owe",
 }
+local COUNTRY_LIST = {
+	"DB", "AE", "AL", "AR", "AT", "AM", "AU", "AZ", "BE", "BH", "BY", "BO",
+	"BR", "BN", "BG", "BZ", "CA", "CH", "CL", "CN", "CO", "CR", "CY", "CZ",
+	"DE", "DK", "DO", "DZ", "EC", "EG", "EE", "ES", "FI", "FR", "GE", "GB",
+	"GR", "GT", "HN", "HK", "HU", "HR", "IS", "IN", "ID", "IR", "IE", "IL",
+	"IT", "JP", "JO", "KP", "KR", "KW", "KZ", "LB", "LI", "LT", "LU", "LV",
+	"MA", "MC", "MO", "MK", "MX", "MY", "NL", "NO", "NZ", "OM", "PA", "PE",
+	"PH", "PL", "PK", "PT", "PR", "QA", "RO", "RU", "SA", "SG", "SK", "SI",
+	"SV", "SE", "SY", "TH", "TN", "TR", "TT", "TW", "UA", "US", "UY", "UZ",
+	"VE", "VN", "YE", "ZA", "ZW",
+}
 local DEVICE_VALUE_FIELDS = {
 	channel = { kind = "string", max = 16, check = function(v) return v == "auto" or v:match("^%d+$") and tonumber(v) >= 0 and tonumber(v) <= 196 end },
 	htmode = { kind = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
-	band = { kind = "enum", values = { "2g", "5g", "6g" } },
+	band = { kind = "enum", values = { "2g", "5g" } },
 	txpower = { kind = "int", min = 0, max = 100 },
-	country = { kind = "country" },
+	country = { kind = "enum", values = COUNTRY_LIST },
 	beacon_int = { kind = "int", min = 20, max = 1000 },
 	dtim_period = { kind = "int", min = 1, max = 255 },
 	twt = { kind = "enum", values = { "0", "1" } },
@@ -703,7 +714,6 @@ local VIF_VALUE_FIELDS = {
 	bssid = { kind = "mac" },
 	macaddr = { kind = "mac" },
 	hidden = { kind = "bool" },
-	isolate = { kind = "bool" },
 	wmm = { kind = "bool" },
 	ieee80211k = { kind = "bool" },
 	ieee80211r = { kind = "bool" },
@@ -716,8 +726,6 @@ local VIF_VALUE_FIELDS = {
 	kicklow = { kind = "int", min = -100, max = 0 },
 	assocthres = { kind = "int", min = 0, max = 65535 },
 	steeringthresold = { kind = "int", min = -100, max = 0 },
-	mumimo_dl = { kind = "bool" },
-	mumimo_ul = { kind = "bool" },
 	ofdma_dl = { kind = "bool" },
 	ofdma_ul = { kind = "bool" },
 	amsdu = { kind = "bool" },
@@ -741,9 +749,6 @@ local function valid_value(spec, value)
 		return tostring(n)
 	elseif spec.kind == "bool" then
 		if value == "1" or value == "0" then return value end
-		return nil
-	elseif spec.kind == "country" then
-		if value:match("^%u%u$") or value == "00" or value == "DB" then return value end
 		return nil
 	elseif spec.kind == "mac" then
 		if value:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then return value end
