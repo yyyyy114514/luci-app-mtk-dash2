@@ -50,6 +50,38 @@ function textInput(value, extra) {
 }
 function outBox() { return E('pre', {}, []); }
 function setOut(out, r) { out.textContent = JSON.stringify(r || {}, null, 2); }
+function boolSetter(name, value) {
+	var b = E('input', { type: 'checkbox' });
+	if (String(value) === '1' || value === true || value === 1) b.checked = true;
+	b.setAttribute('data-field', name);
+	b.addEventListener('change', function() { b.setAttribute('data-dirty', '1'); });
+	return b;
+}
+function advText(name, value, extra) {
+	var i = textInput(value == null ? '' : value, extra || {});
+	i.setAttribute('data-field', name);
+	i.addEventListener('change', function() { i.setAttribute('data-dirty', '1'); });
+	return i;
+}
+function advSel(name, options, value) {
+	var s = selectLive(options, value);
+	s.setAttribute('data-field', name);
+	s.addEventListener('change', function() { s.setAttribute('data-dirty', '1'); });
+	return s;
+}
+function advRow(nodes) {
+	return E('div', { 'class': 'cbi-value' }, nodes);
+}
+function collectAdvanced(scope) {
+	var values = {};
+	scope.querySelectorAll('[data-field]').forEach(function(el) {
+		if (el.getAttribute('data-dirty') !== '1') return;
+		var name = el.getAttribute('data-field');
+		var val = el.type === 'checkbox' ? (el.checked ? '1' : '0') : String(el.value || '').trim();
+		if (val !== '') values[name] = val;
+	});
+	return values;
+}
 
 return view.extend({
 	load: function() { return Promise.all([getConfig(), getStatus(), getCaps()]); },
@@ -62,20 +94,30 @@ return view.extend({
 		root.appendChild(E('p', {}, [_('已接入 netifd/mtwifi-cfg 的真实配置路径；写入后提交、应用并复核，失败自动回滚。')]));
 
 		var out1 = outBox();
-		var dt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('设备'), _('信道'), _('频宽'), _('发射功率(%)'), _('国家'), _('状态'), _('操作')])]);
+		var dt = E('table', { 'class': 'cbi-section-table' }, [thRow([_('设备'), _('信道'), _('频宽'), _('发射功率(%)'), _('国家'), _('状态'), _('高级'), _('操作')])]);
 		devices.forEach(function(d) {
 			var dis = String(d.disabled) === '1' || d.disabled === true;
 			var chan = textInput(d.channel == null ? 'auto' : d.channel, { maxlength: 16 });
 			var htm = selectLive(HTMODES, d.htmode || '');
 			var pwr = textInput(d.txpower == null ? '' : d.txpower, { maxlength: 3 });
 			var cty = selectLive(COUNTRY_LIST, d.country || '');
+			var advD = E('details', {}, [
+				E('summary', {}, [_('高级')]),
+				advRow([E('label', {}, [_('频段：')]), ' ', advSel('band', ['2g', '5g'], d.band || '2g'), '　', E('label', {}, [_('TWT：')]), ' ', boolSetter('twt', d.twt), '　', E('label', {}, [_('MU 波束成形：')]), ' ', boolSetter('mu_beamformer', d.mu_beamformer)]),
+				advRow([E('label', {}, [_('频段引导 (BandSteering)：')]), ' ', boolSetter('bandsteering', d.bandsteering), '　', E('label', {}, [_('DBDC 主频段：')]), ' ', boolSetter('dbdc_main', d.dbdc_main), '　', E('label', {}, [_('关闭 40MHz 共存扫描：')]), ' ', boolSetter('noscan', d.noscan)]),
+				advRow([E('label', {}, [_('信标间隔：')]), ' ', advText('beacon_int', d.beacon_int, { maxlength: 4, placeholder: '20-1000', style: 'width:70px' }), '　', E('label', {}, [_('DTIM 周期：')]), ' ', advText('dtim_period', d.dtim_period, { maxlength: 3, placeholder: '1-255', style: 'width:70px' })]),
+				advRow([E('label', {}, [_('MAP wapp 服务：')]), ' ', boolSetter('wapp', d.wapp)]),
+				advRow([E('label', {}, [_('硬件加速卸载 (WHNAT)：')]), ' ', boolSetter('whnat', d.whnat), ' ', E('em', { 'class': 'alert-message warning' }, [_('变更需重装驱动，可能需要重启设备')])])
+			]);
 			var actions = E('td', {}, []);
 			if (canW) {
 				actions.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
 					var values = { channel: chan.value || 'auto', htmode: htm.value };
 					if (pwr.value !== '') values.txpower = pwr.value;
 					if (cty.value !== '') values.country = cty.value;
-					if (!window.confirm(_('确认应用 ') + d.name + _(' 的频道/频宽/功率/国家？无线可能短暂中断。'))) return;
+					var adv = collectAdvanced(advD);
+					Object.keys(adv).forEach(function(k) { values[k] = adv[k]; });
+					if (!window.confirm(_('确认应用设备 ') + d.name + _(' 的配置？无线可能短暂中断。'))) return;
 					updateDevice(d.name, values, true).then(function(r) { setOut(out1, r); }).catch(function(e) { setOut(out1, { error: String(e) }); });
 				}}, [_('应用设备配置')]));
 				actions.appendChild(E('button', { 'class': 'cbi-button', 'click': function() {
@@ -84,12 +126,12 @@ return view.extend({
 					setRadio(d.name, !dis, true).then(function() { location.reload(); });
 				} }, [dis ? _('启用') : _('停用')]));
 			}
-			dt.appendChild(E('tr', {}, [E('td', {}, [d.name]), E('td', {}, [chan]), E('td', {}, [htm]), E('td', {}, [pwr]), E('td', {}, [cty]), E('td', {}, [dis ? _('停用') : _('运行')]), actions]));
+			dt.appendChild(E('tr', {}, [E('td', {}, [d.name]), E('td', {}, [chan]), E('td', {}, [htm]), E('td', {}, [pwr]), E('td', {}, [cty]), E('td', {}, [dis ? _('停用') : _('运行')]), E('td', {}, [advD]), actions]));
 		});
 		root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('无线设备')]), dt, out1]));
 
 		var out2 = outBox();
-		var it = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('11k'), _('11r'), _('MAC 过滤'), _('操作')])]);
+		var it = E('table', { 'class': 'cbi-section-table' }, [thRow([_('接口'), _('模式'), _('SSID'), _('加密'), _('密钥'), _('网络'), _('隐藏'), _('11k'), _('11r'), _('MAC 过滤'), _('高级'), _('操作')])]);
 		ifaces.forEach(function(f) {
 			var enc = f.encryption || 'none';
 			var ssid = textInput(f.ssid, { maxlength: 32 });
@@ -103,6 +145,17 @@ return view.extend({
 			var r11 = E('input', { type: 'checkbox' });
 			if (String(f.ieee80211r) === '1' || f.ieee80211r === true) r11.checked = true;
 			var mf = selectLive(['disable', 'allow', 'deny'], f.macfilter || 'disable');
+			var advI = E('details', {}, [
+				E('summary', {}, [_('高级')]),
+				advRow([E('label', {}, [_('WMM：')]), ' ', boolSetter('wmm', f.wmm), '　', E('label', {}, [_('OFDMA 下行：')]), ' ', boolSetter('ofdma_dl', f.ofdma_dl), '　', E('label', {}, [_('OFDMA 上行：')]), ' ', boolSetter('ofdma_ul', f.ofdma_ul)]),
+				advRow([E('label', {}, [_('AMSDU：')]), ' ', boolSetter('amsdu', f.amsdu), '　', E('label', {}, [_('自动 BA：')]), ' ', boolSetter('autoba', f.autoba), '　', E('label', {}, [_('U-APSD 省电：')]), ' ', boolSetter('uapsd', f.uapsd)]),
+				advRow([E('label', {}, [_('本机 MAC：')]), ' ', advText('macaddr', f.macaddr, { maxlength: 17, style: 'width:120px' }), '　', E('label', {}, [_('BSSID：')]), ' ', advText('bssid', f.bssid, { maxlength: 17, style: 'width:120px' })]),
+				advRow([E('label', {}, [_('MAC 列表：')]), ' ', advText('maclist', f.maclist, { maxlength: 200, placeholder: _('MAC 以空格分隔'), style: 'width:240px' })]),
+				advRow([E('label', {}, [_('漫游 BSSID 列表：')]), ' ', advText('steeringbssid', f.steeringbssid, { maxlength: 200, placeholder: _('MAC 以空格分隔'), style: 'width:240px' })]),
+				advRow([E('label', {}, [_('WPA 组密钥更新（秒）：')]), ' ', advText('wpa_group_rekey', f.wpa_group_rekey, { maxlength: 5, placeholder: '0-86400', style: 'width:80px' }), '　', E('label', {}, [_('分片阈值 (frag)：')]), ' ', advText('frag', f.frag, { maxlength: 4, placeholder: '256-2346', style: 'width:80px' })]),
+				advRow([E('label', {}, [_('RTS 阈值：')]), ' ', advText('rts', f.rts, { maxlength: 4, placeholder: '1-2347', style: 'width:80px' }), '　', E('label', {}, [_('弱信号踢出 (dBm)：')]), ' ', advText('kicklow', f.kicklow, { maxlength: 4, placeholder: '-100~0', style: 'width:80px' })]),
+				advRow([E('label', {}, [_('接入 RSSI 阈值：')]), ' ', advText('assocthres', f.assocthres, { maxlength: 5, placeholder: '0-65535', style: 'width:90px' }), '　', E('label', {}, [_('漫游切换 RSSI 阈值 (dBm)：')]), ' ', advText('steeringthresold', f.steeringthresold, { maxlength: 4, placeholder: '-100~0', style: 'width:80px' })])
+			]);
 			var acts = E('td', {}, []);
 			if (canW) {
 				acts.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() {
@@ -112,6 +165,8 @@ return view.extend({
 					}
 					var values = { ssid: ssid.value, encryption: sel.value, network: net.value, hidden: hid.checked ? '1' : '0', macfilter: mf.value, ieee80211k: k11.checked ? '1' : '0', ieee80211r: r11.checked ? '1' : '0' };
 					if (key.value) { values.key = key.value; }
+					var adv = collectAdvanced(advI);
+					Object.keys(adv).forEach(function(k) { values[k] = adv[k]; });
 					if (!window.confirm(_('确认应用接口配置 ') + String(f.name) + _('？该接口的无线连接可能短暂中断。'))) return;
 					updateVif(f.name, values, true).then(function(r) { setOut(out2, r); }).catch(function(e) { setOut(out2, { error: String(e) }); });
 				}}, [_('应用')]));
@@ -120,7 +175,7 @@ return view.extend({
 					deleteVif(f.name, true).then(function(r) { setOut(out2, r); }).catch(function(e) { setOut(out2, { error: String(e) }); });
 				}}, [_('删除')]));
 			}
-			it.appendChild(E('tr', {}, [E('td', {}, [String(f.name)]), E('td', {}, [f.mode === 'sta' ? 'STA' : 'AP']), E('td', {}, [ssid]), E('td', {}, [sel]), E('td', {}, [key]), E('td', {}, [net]), E('td', {}, [hid]), E('td', {}, [k11]), E('td', {}, [r11]), E('td', {}, [mf]), acts]));
+			it.appendChild(E('tr', {}, [E('td', {}, [String(f.name)]), E('td', {}, [f.mode === 'sta' ? 'STA' : 'AP']), E('td', {}, [ssid]), E('td', {}, [sel]), E('td', {}, [key]), E('td', {}, [net]), E('td', {}, [hid]), E('td', {}, [k11]), E('td', {}, [r11]), E('td', {}, [mf]), E('td', {}, [advI]), acts]));
 		});
 		root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('无线接口 / MBSSID')]), it, out2]));
 
