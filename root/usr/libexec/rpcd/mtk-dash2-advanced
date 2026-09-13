@@ -113,6 +113,7 @@ local DEVICE_FIELDS = {
 }
 
 local IFACE_FIELDS = {
+	{ id = "disabled", uci = "disabled", label = "启用此接口", category = "基础", type = "boolean" },
 	{ id = "ssid", uci = "ssid", label = "SSID", category = "基础", type = "string" },
 	{ id = "hidden", uci = "hidden", label = "隐藏 SSID", category = "基础", type = "boolean" },
 	{ id = "wmm", uci = "wmm", label = "WMM", category = "QoS", type = "boolean" },
@@ -204,11 +205,14 @@ local function valid(f, v)
 		for _, x in ipairs(f.values) do if x == v then return v end end
 		return nil
 	end
-	if f.id == "channel" and not (v == "auto" or v:match("^%d+$")) then return nil end
+	if f.id == "channel" and not (v == "auto" or v:match("^%d+$") and tonumber(v) >= 1 and tonumber(v) <= 196) then return nil end
 	if f.id == "maclist" or f.id == "steeringbssid" then
 		local count = 0
-		for mac in v:gmatch("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") do count = count + 1 end
-		if count == 0 then return nil end
+		for mac in v:gmatch("%S+") do
+			if not mac:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then return nil end
+			count = count + 1
+		end
+		if count == 0 or count > 129 then return nil end
 	end
 	return v
 end
@@ -245,7 +249,17 @@ local function apply(a)
 		local path = "wireless." .. section .. "." .. f.uci
 		local ec, old = sh(UCI .. " get " .. q(path))
 		before[path] = { exists = ec == 0, value = old:gsub("%s+$", "") }
-		ec = sh(UCI .. " set " .. q(path) .. "=" .. q(value))
+		if f.uci == "maclist" or f.uci == "steeringbssid" then
+			ec = sh(UCI .. " delete " .. q(path))
+			if ec == 0 then
+				for mac in value:gmatch("%S+") do
+					ec = sh(UCI .. " add_list " .. q(path) .. "=" .. q(mac))
+					if ec ~= 0 then break end
+				end
+			end
+		else
+			ec = sh(UCI .. " set " .. q(path) .. "=" .. q(value))
+		end
 		if ec ~= 0 then return { ok = false, error = "UCI 写入失败: " .. k, exit_code = ec } end
 		changes[k] = value
 	end

@@ -103,7 +103,7 @@ return view.extend({
 			var regOut = E('pre', { 'style': 'max-height:360px;overflow:auto' }, []);
 			if (probes.register && probes.register.status === 'available' && probes.iface) {
 				root.appendChild(E('div', { 'class': 'cbi-section' }, [E('h3', {}, [_('驱动统计（只读）')]),
-					E('button', { 'class': 'cbi-button', 'click': function() { readRegister(probes.iface).then(function(r) { regOut.textContent = r.output || r.error || JSON.stringify(r); }); } }, [_('读取 iwpriv 统计')]), regOut]));
+					E('button', { 'class': 'cbi-button', 'click': function() { readRegister(probes.iface).then(function(r) { regOut.textContent = r.output || r.error || JSON.stringify(r); }).catch(function(e) { regOut.textContent = '错误: ' + String(e); }); } }, [_('读取 iwpriv 统计')]), regOut]));
 			}
 		}
 		return root;

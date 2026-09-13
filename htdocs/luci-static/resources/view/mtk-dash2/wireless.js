@@ -123,7 +123,7 @@ return view.extend({
 				actions.appendChild(E('button', { 'class': 'cbi-button', 'click': function() {
 					if (dis && !window.confirm(_('确认启用设备 ') + d.name + _('？'))) return;
 					if (!dis && !window.confirm(_('确认停用设备 ') + d.name + _('？该射频所有接口将下线。'))) return;
-					setRadio(d.name, !dis, true).then(function() { location.reload(); });
+					setRadio(d.name, !dis, true).then(function(r) { if (r && r.ok === false) { setOut(out1, r); return; } location.reload(); }).catch(function(e) { setOut(out1, { error: String(e) }); });
 				} }, [dis ? _('启用') : _('停用')]));
 			}
 			dt.appendChild(E('tr', {}, [E('td', {}, [d.name]), E('td', {}, [chan]), E('td', {}, [htm]), E('td', {}, [pwr]), E('td', {}, [cty]), E('td', {}, [dis ? _('停用') : _('运行')]), E('td', {}, [advD]), actions]));
@@ -147,7 +147,7 @@ return view.extend({
 			var mf = selectLive(['disable', 'allow', 'deny'], f.macfilter || 'disable');
 			var advI = E('details', {}, [
 				E('summary', {}, [_('高级')]),
-				advRow([E('label', {}, [_('WMM：')]), ' ', boolSetter('wmm', f.wmm), '　', E('label', {}, [_('OFDMA 下行：')]), ' ', boolSetter('ofdma_dl', f.ofdma_dl), '　', E('label', {}, [_('OFDMA 上行：')]), ' ', boolSetter('ofdma_ul', f.ofdma_ul)]),
+				advRow([E('label', {}, [_('启用此接口：')]), ' ', boolSetter('disabled', f.disabled), '　', E('label', {}, [_('WMM：')]), ' ', boolSetter('wmm', f.wmm), '　', E('label', {}, [_('OFDMA 下行：')]), ' ', boolSetter('ofdma_dl', f.ofdma_dl), '　', E('label', {}, [_('OFDMA 上行：')]), ' ', boolSetter('ofdma_ul', f.ofdma_ul)]),
 				advRow([E('label', {}, [_('AMSDU：')]), ' ', boolSetter('amsdu', f.amsdu), '　', E('label', {}, [_('自动 BA：')]), ' ', boolSetter('autoba', f.autoba), '　', E('label', {}, [_('U-APSD 省电：')]), ' ', boolSetter('uapsd', f.uapsd)]),
 				advRow([E('label', {}, [_('本机 MAC：')]), ' ', advText('macaddr', f.macaddr, { maxlength: 17, style: 'width:120px' }), '　', E('label', {}, [_('BSSID：')]), ' ', advText('bssid', f.bssid, { maxlength: 17, style: 'width:120px' })]),
 				advRow([E('label', {}, [_('MAC 列表：')]), ' ', advText('maclist', f.maclist, { maxlength: 200, placeholder: _('MAC 以空格分隔'), style: 'width:240px' })]),

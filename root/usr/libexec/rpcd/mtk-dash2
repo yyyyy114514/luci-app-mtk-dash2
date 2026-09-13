@@ -693,7 +693,7 @@ local COUNTRY_LIST = {
 	"VE", "VN", "YE", "ZA", "ZW",
 }
 local DEVICE_VALUE_FIELDS = {
-	channel = { kind = "string", max = 16, check = function(v) return v == "auto" or v:match("^%d+$") and tonumber(v) >= 0 and tonumber(v) <= 196 end },
+	channel = { kind = "string", max = 16, check = function(v) return v == "auto" or v:match("^%d+$") and tonumber(v) >= 1 and tonumber(v) <= 196 end },
 	htmode = { kind = "enum", values = { "HT20", "HT40", "VHT20", "VHT40", "VHT80", "VHT160", "HE20", "HE40", "HE80", "HE160" } },
 	band = { kind = "enum", values = { "2g", "5g" } },
 	txpower = { kind = "int", min = 0, max = 100 },
@@ -714,6 +714,7 @@ local VIF_VALUE_FIELDS = {
 	encryption = { kind = "enum", values = ENC_WHITELIST },
 	key = { kind = "psk" },
 	network = { kind = "string", max = 64 },
+	disabled = { kind = "bool" },
 	bssid = { kind = "mac" },
 	macaddr = { kind = "mac" },
 	hidden = { kind = "bool" },
@@ -758,8 +759,11 @@ local function valid_value(spec, value)
 		return nil
 	elseif spec.kind == "maclist" then
 		local count = 0
-		for mac in value:gmatch("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]") do count = count + 1 end
-		if count == 0 or value:gsub("[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]", ""):match("%S") then return nil end
+		for mac in value:gmatch("%S+") do
+			if not mac:match("^[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]:[%x][%x]$") then return nil end
+			count = count + 1
+		end
+		if count == 0 or count > 129 then return nil end
 		return value
 	elseif spec.kind == "psk" then
 		if #value >= 8 and #value <= 63 then return value end
@@ -917,7 +921,18 @@ local function update_vif(args)
 		local spec = VIF_VALUE_FIELDS[k]
 		local nv = spec and valid_value(spec, v)
 		if not nv then restore_wireless_uci(rb); return { ok = false, error = "字段不在白名单或值非法: " .. tostring(k) } end
-		local c = sh(UCI_BIN .. " set wireless." .. iface .. "." .. k .. "=" .. q(nv))
+		local c
+		if spec.kind == "maclist" then
+			c = sh(UCI_BIN .. " delete wireless." .. iface .. "." .. k)
+			if c == 0 then
+				for mac in nv:gmatch("%S+") do
+					c = sh(UCI_BIN .. " add_list wireless." .. iface .. "." .. k .. "=" .. q(mac))
+					if c ~= 0 then break end
+				end
+			end
+		else
+			c = sh(UCI_BIN .. " set wireless." .. iface .. "." .. k .. "=" .. q(nv))
+		end
 		if c ~= 0 then restore_wireless_uci(rb); return { ok = false, error = "UCI 写入失败: " .. k, exit_code = c } end
 		changed[k] = nv
 	end

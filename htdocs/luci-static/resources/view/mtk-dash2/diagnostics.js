@@ -40,18 +40,22 @@ return view.extend({
 		var rtf = E('table', { 'class': 'cbi-section-table' });
 		var rtfHead = false;
 		function addRuntime(label, r) {
-			if (!r || !r.ok) return;
+			if (!r) return;
 			if (!rtfHead) { rtfHead = true; rtf.appendChild(E('tr', {}, [_('指标'), _('接口'), _('值'), _('工具')].map(function(h) { return E('th', {}, [h]); }))); }
+			if (r.ok === false) {
+				rtf.appendChild(E('tr', {}, [E('td', {}, [label]), E('td', {}, ['-']), E('td', { colspan: 2 }, [String(r.error || '失败')])]));
+				return;
+			}
 			rtf.appendChild(E('tr', {}, [E('td', {}, [label]), E('td', {}, [String(r.iface || '-')]),
 				E('td', {}, [r.value != null ? String(r.value) + (r.unit || '') : (r.channel != null ? String(r.channel) : (r.tx_power != null ? String(r.tx_power) + ' dBm' : '-'))]),
 				E('td', {}, [String(r.tool || r.command || '-')])]));
 		}
 		var rtBtns = E('div', {}, []);
 		if (iface) {
-			if (probes.temperature && probes.temperature.status === 'available') rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getTemp(iface).then(function(r) { addRuntime(_('温度'), r); }); } }, [_('读取温度')]));
-			rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getChan(iface).then(function(r) { addRuntime(_('信道'), r); }); } }, [_('读取信道')]));
-			rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getPower(iface).then(function(r) { addRuntime(_('功率'), r); }); } }, [_('读取功率')]));
-			rtBtns.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { if (confirm(_('扫描会短暂占用射频，继续？'))) doScan(iface).then(function(r) { scanOut.textContent = JSON.stringify(r, null, 2); }); } }, [_('扫描')]));
+			if (probes.temperature && probes.temperature.status === 'available') rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getTemp(iface).then(function(r) { addRuntime(_('温度'), r); }).catch(function(e) { addRuntime(_('温度'), { ok: false, error: String(e) }); }); } }, [_('读取温度')]));
+			rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getChan(iface).then(function(r) { addRuntime(_('信道'), r); }).catch(function(e) { addRuntime(_('信道'), { ok: false, error: String(e) }); }); } }, [_('读取信道')]));
+			rtBtns.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { getPower(iface).then(function(r) { addRuntime(_('功率'), r); }).catch(function(e) { addRuntime(_('功率'), { ok: false, error: String(e) }); }); } }, [_('读取功率')]));
+			rtBtns.appendChild(E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { if (confirm(_('扫描会短暂占用射频，继续？'))) doScan(iface).then(function(r) { scanOut.textContent = JSON.stringify(r, null, 2); }).catch(function(e) { scanOut.textContent = '错误: ' + String(e); }); } }, [_('扫描')]));
 		} else {
 			rtBtns.appendChild(E('p', { 'class': 'alert-message warning' }, [_('未探测到 mtwifi 接口（ra*/apcli*），运行时读取不可用。')]));
 		}
@@ -72,7 +76,7 @@ return view.extend({
 		var regOut = preBox();
 		var regBtn = E('div', {}, []);
 		if (iface && probes.register && probes.register.status === 'available') {
-			regBtn.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { readReg(iface).then(function(r) { regOut.textContent = r.output || r.error || JSON.stringify(r); }); } }, [_('只读查看 iwpriv 统计')]));
+			regBtn.appendChild(E('button', { 'class': 'cbi-button', 'click': function() { readReg(iface).then(function(r) { regOut.textContent = r.output || r.error || JSON.stringify(r); }).catch(function(e) { regOut.textContent = '错误: ' + String(e); }); } }, [_('只读查看 iwpriv 统计')]));
 			root.appendChild(section(_('寄存器 / 驱动统计（只读）'), [regBtn, regOut]));
 		}
 
@@ -87,7 +91,7 @@ return view.extend({
 			]));
 		});
 		root.appendChild(section(_('诊断链路'), [steps, E('div', {}, [
-			E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { getDiag().then(function(nd) { download('mtk-dash2-diagnostics.json', nd); }); } }, [_('下载脱敏诊断包')]),
+			E('button', { 'class': 'cbi-button cbi-button-action', 'click': function() { getDiag().then(function(nd) { download('mtk-dash2-diagnostics.json', nd); }).catch(function(e) { alert('收集失败: ' + String(e)); }); } }, [_('下载脱敏诊断包')]),
 			' ',
 			E('button', { 'class': 'cbi-button', 'click': function() { location.reload(); } }, [_('重新收集')])
 		])]));
